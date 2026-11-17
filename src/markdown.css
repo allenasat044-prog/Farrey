@@ -1,0 +1,250 @@
+/* empty state */
+.empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+}
+.empty h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+.empty p {
+  margin: 0;
+  opacity: 0.7;
+}
+.empty[hidden] {
+  display: none;
+}
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgb(0 0 0 / 0.2);
+  background: rgb(255 255 255 / 0.55);
+  color: rgb(var(--ink));
+  font: inherit;
+  cursor: pointer;
+}
+.btn:hover {
+  background: rgb(255 255 255 / 0.85);
+}
+
+/* drag-and-drop highlight */
+.note.dragover::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  z-index: 40;
+  border: 2px dashed rgb(var(--ink) / 0.6);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+/* preview + editor fill the content area */
+#preview,
+#editor {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+#preview[hidden],
+#editor[hidden] {
+  display: none;
+}
+#editor {
+  width: 100%;
+  height: 100%;
+  padding: 14px 16px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: rgb(var(--ink));
+  font:
+    13px/1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+.toast {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 25;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgb(30 30 30 / 0.92);
+  color: #fff;
+  font-size: 12px;
+}
+.toast[hidden] {
+  display: none;
+}
+
+/* GitHub-style markdown */
+.md {
+  padding: 14px 18px 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 1.3em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.md h1 {
+  font-size: 1.7em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid rgb(var(--ink) / 0.2);
+}
+.md h2 {
+  font-size: 1.4em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid rgb(var(--ink) / 0.15);
+}
+.md h3 {
+  font-size: 1.2em;
+}
+.md h4,
+.md h5,
+.md h6 {
+  font-size: 1em;
+}
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md pre,
+.md table {
+  margin: 0 0 1em;
+}
+.md ul,
+.md ol {
+  padding-left: 1.6em;
+}
+.md li + li {
+  margin-top: 0.25em;
+}
+.md li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.3em;
+}
+.md input[type="checkbox"] {
+  margin: 0 0.5em 0 0;
+  cursor: pointer;
+  vertical-align: -1px;
+}
+.md a {
+  color: #0b5cad;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.md img {
+  max-width: 100%;
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid rgb(var(--ink) / 0.25);
+  margin: 1.4em 0;
+}
+.md blockquote {
+  padding: 0 1em;
+  border-left: 4px solid rgb(var(--ink) / 0.3);
+  opacity: 0.85;
+}
+.md code {
+  padding: 0.15em 0.35em;
+  border-radius: 5px;
+  background: rgb(0 0 0 / 0.07);
+  font:
+    0.88em ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+}
+.md pre {
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.08);
+  line-height: 1.45;
+}
+.md pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 12.5px;
+}
+.md table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+}
+.md th,
+.md td {
+  padding: 5px 12px;
+  border: 1px solid rgb(var(--ink) / 0.25);
+}
+.md th {
+  font-weight: 600;
+  background: rgb(0 0 0 / 0.05);
+}
+.md .hint {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* code highlighting */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-built_in {
+  color: #8a1fa8;
+}
+.hljs-string,
+.hljs-attr,
+.hljs-template-variable {
+  color: #0a6b3d;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: #b35500;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name {
+  color: #0b5cad;
+}
+.hljs-comment,
+.hljs-quote {
+  color: rgb(var(--ink) / 0.55);
+  font-style: italic;
+}
+.hljs-variable,
+.hljs-type,
+.hljs-params {
+  color: #a3262a;
+}

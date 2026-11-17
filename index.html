@@ -6,7 +6,68 @@
     <title>Farrey</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app" class="note" data-color="yellow">
+      <header class="titlebar" id="titlebar">
+        <div class="tb-side tb-left" id="tb-left">
+          <button
+            id="btn-pin"
+            class="tb-btn"
+            title="Float on top"
+            aria-label="Float on top"
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <rect x="2.5" y="2" width="11" height="2.2" rx="1" fill="currentColor" />
+              <rect
+                x="2.5"
+                y="6"
+                width="11"
+                height="8"
+                rx="1.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+              />
+            </svg>
+          </button>
+          <button
+            id="btn-color"
+            class="tb-btn"
+            title="Color and opacity"
+            aria-label="Color and opacity"
+          >
+            <span class="dot"></span>
+          </button>
+        </div>
+        <div class="tb-title" id="tb-title">Farrey</div>
+        <div class="tb-side tb-right" id="tb-right">
+          <button id="btn-close" class="tb-btn" title="Close" aria-label="Close">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path
+                d="M4 4l8 8M12 4l-8 8"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                fill="none"
+              />
+            </svg>
+          </button>
+        </div>
+      </header>
+      <main id="content">
+        <div id="empty" class="empty">
+          <h1>Farrey</h1>
+          <p id="empty-hint">Drop a README.md here, or</p>
+          <div class="empty-actions">
+            <button id="btn-open-empty" class="btn">Open file…</button>
+            <button id="btn-new-empty" class="btn">New note…</button>
+          </div>
+        </div>
+        <article id="preview" class="md" hidden></article>
+        <textarea id="editor" spellcheck="true" hidden></textarea>
+        <div id="toast" class="toast" hidden></div>
+      </main>
+      <div id="popover" class="popover" hidden></div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
