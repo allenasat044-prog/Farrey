@@ -2,7 +2,7 @@
   "$schema": "../gen/schema/desktop-schema.json",
   "identifier": "default",
   "description": "Default permissions for Farrey windows",
-  "windows": ["main"],
+  "windows": ["sticker-*"],
   "permissions": [
     "core:default",
     "dialog:default",

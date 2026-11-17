@@ -3,7 +3,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { findTaskLines, renderMarkdown, toggleTaskLine } from "./markdown";
-import { addTitlebarButton, setTitleText } from "./titlebar";
+import { stickerId, type StickerState } from "./sticker";
+import { addTitlebarButton, onBeforeClose, setTitleText } from "./titlebar";
 import "./markdown.css";
 
 interface NoteData {
@@ -13,7 +14,6 @@ interface NoteData {
 
 type Mode = "preview" | "edit";
 
-const FILE_KEY = "farrey.file";
 const SAVE_DELAY_MS = 500;
 const POLL_MS = 1000;
 const SUPPORTED = /\.(md|markdown|mdx|txt)$/i;
@@ -163,19 +163,16 @@ function scheduleSave() {
 }
 
 /* ---------- opening files ---------- */
-async function openPath(p: string, startInEdit = false) {
+async function openPath(p: string, startInEdit = false, claim = true) {
   await saveNow();
   const data = await invoke<NoteData>("read_note", { path: p });
+  // Claim the file for this sticker (fails if another sticker already has it open).
+  if (claim) await invoke("set_file", { id: stickerId(), file: p });
   path = p;
   source = data.content;
   lastMtime = data.mtime;
   dirty = false;
-  try {
-    localStorage.setItem(FILE_KEY, p);
-  } catch {
-    /* ignore */
-  }
-  setMode(startInEdit ? "edit" : "preview");
+  setMode(startInEdit || data.content === "" ? "edit" : "preview");
 }
 
 async function tryOpen(p: string, startInEdit = false) {
@@ -308,28 +305,22 @@ function wireEvents() {
   });
 }
 
-export async function initNote() {
+export async function initNote(state: StickerState) {
   emptyHint.textContent = `Drop a README.md here, or press ${MOD}O`;
   addTitlebarButton("right", openBtn);
   addTitlebarButton("right", modeBtn);
+  onBeforeClose(saveNow);
+  window.addEventListener("farrey:error", (e) =>
+    toast(String((e as CustomEvent).detail)),
+  );
   wireEvents();
   showView();
 
-  let saved: string | null = null;
-  try {
-    saved = localStorage.getItem(FILE_KEY);
-  } catch {
-    /* ignore */
-  }
-  if (saved) {
+  if (state.file) {
     try {
-      await openPath(saved);
-    } catch {
-      try {
-        localStorage.removeItem(FILE_KEY);
-      } catch {
-        /* ignore */
-      }
+      await openPath(state.file, false, false);
+    } catch (err) {
+      toast(`Could not open ${basename(state.file)}: ${errText(err)}`);
       showView();
     }
   }

@@ -1,5 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
+import { reportError, setPrefs, stickerId, type StickerState } from "./sticker";
 
 const win = getCurrentWindow();
 
@@ -10,43 +12,6 @@ const MIN_OPACITY = 0.35;
 
 const COLORS = ["yellow", "blue", "green", "pink", "purple", "gray"] as const;
 type NoteColor = (typeof COLORS)[number];
-
-interface Prefs {
-  color: NoteColor;
-  opacity: number;
-  pinned: boolean;
-}
-
-const PREFS_KEY = "farrey.prefs";
-const DEFAULTS: Prefs = { color: "yellow", opacity: 1, pinned: false };
-
-function loadPrefs(): Prefs {
-  try {
-    const raw = localStorage.getItem(PREFS_KEY);
-    if (!raw) return { ...DEFAULTS };
-    const p = JSON.parse(raw) as Partial<Prefs>;
-    return {
-      color: COLORS.includes(p.color as NoteColor)
-        ? (p.color as NoteColor)
-        : DEFAULTS.color,
-      opacity:
-        typeof p.opacity === "number"
-          ? Math.min(1, Math.max(MIN_OPACITY, p.opacity))
-          : DEFAULTS.opacity,
-      pinned: p.pinned === true,
-    };
-  } catch {
-    return { ...DEFAULTS };
-  }
-}
-
-function savePrefs(prefs: Prefs) {
-  try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  } catch {
-    /* storage unavailable: preferences just won't persist */
-  }
-}
 
 function $(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -62,7 +27,7 @@ export function setTitleText(text: string) {
   win.setTitle(text).catch(() => {});
 }
 
-/** Let other modules add buttons to the title bar (placed before the close button). */
+/** Let other modules add buttons to the title bar (right-side buttons go before close). */
 export function addTitlebarButton(side: "left" | "right", el: HTMLElement) {
   const container = $(side === "left" ? "tb-left" : "tb-right");
   if (side === "right") {
@@ -72,15 +37,43 @@ export function addTitlebarButton(side: "left" | "right", el: HTMLElement) {
   }
 }
 
-export function initTitlebar() {
+const beforeCloseHooks: Array<() => Promise<void>> = [];
+
+/** Register work (e.g. saving) that must finish before this sticker closes. */
+export function onBeforeClose(fn: () => Promise<void>) {
+  beforeCloseHooks.push(fn);
+}
+
+function errorMessage(err: unknown): string {
+  return typeof err === "string" ? err : err instanceof Error ? err.message : String(err);
+}
+
+function newSticker() {
+  invoke("new_sticker", { fromId: stickerId() }).catch((err) =>
+    reportError(`Could not create a sticker: ${errorMessage(err)}`),
+  );
+}
+
+export function initTitlebar(state: StickerState) {
   const root = $("app");
   const bar = $("titlebar");
   const pinBtn = $("btn-pin");
   const colorBtn = $("btn-color");
   const closeBtn = $("btn-close");
+  const newBtn = $("btn-new");
   const popover = $("popover");
 
-  const prefs = loadPrefs();
+  const prefs = {
+    color: (COLORS.includes(state.color as NoteColor)
+      ? state.color
+      : "yellow") as NoteColor,
+    opacity: Math.min(1, Math.max(MIN_OPACITY, state.opacity)),
+    pinned: state.pinned,
+  };
+
+  function persist(patch: Parameters<typeof setPrefs>[0]) {
+    setPrefs(patch).catch((err) => console.error("Could not save sticker settings", err));
+  }
 
   /* ---------- color, opacity, pin ---------- */
   function applyPrefs() {
@@ -90,20 +83,16 @@ export function initTitlebar() {
     pinBtn.setAttribute("aria-pressed", String(prefs.pinned));
   }
 
-  async function applyPinned() {
-    try {
-      await win.setAlwaysOnTop(prefs.pinned);
-    } catch (err) {
-      console.error("setAlwaysOnTop failed", err);
-    }
-  }
-
   pinBtn.addEventListener("click", () => {
     prefs.pinned = !prefs.pinned;
     applyPrefs();
-    savePrefs(prefs);
-    void applyPinned();
+    persist({ pinned: prefs.pinned });
+    win
+      .setAlwaysOnTop(prefs.pinned)
+      .catch((err) => console.error("setAlwaysOnTop failed", err));
   });
+
+  newBtn.addEventListener("click", newSticker);
 
   /* ---------- palette popover ---------- */
   const swatches = document.createElement("div");
@@ -117,7 +106,7 @@ export function initTitlebar() {
     b.addEventListener("click", () => {
       prefs.color = color;
       applyPrefs();
-      savePrefs(prefs);
+      persist({ color });
     });
     swatches.appendChild(b);
   }
@@ -136,7 +125,7 @@ export function initTitlebar() {
     prefs.opacity = Number(slider.value) / 100;
     applyPrefs();
   });
-  slider.addEventListener("change", () => savePrefs(prefs));
+  slider.addEventListener("change", () => persist({ opacity: prefs.opacity }));
   opacityLabel.append(opacityText, slider);
   popover.append(swatches, opacityLabel);
 
@@ -149,13 +138,30 @@ export function initTitlebar() {
       popover.hidden = true;
     }
   });
+
+  /* ---------- keyboard ---------- */
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") popover.hidden = true;
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "n") {
+      e.preventDefault();
+      newSticker();
+    }
   });
 
-  /* ---------- close ---------- */
-  closeBtn.addEventListener("click", () => {
-    void win.close();
+  /* ---------- close (removes the sticker, keeps its file) ---------- */
+  closeBtn.addEventListener("click", async () => {
+    for (const hook of beforeCloseHooks) {
+      try {
+        await hook();
+      } catch (err) {
+        console.error("before-close hook failed", err);
+      }
+    }
+    try {
+      await invoke("close_sticker", { id: stickerId() });
+    } catch (err) {
+      reportError(`Could not close: ${errorMessage(err)}`);
+    }
   });
 
   /* ---------- drag to move (starts only after a small movement,
@@ -181,10 +187,14 @@ export function initTitlebar() {
   });
 
   /* ---------- window shade ---------- */
-  let shaded = false;
-  let expandedHeight = 0;
+  let shaded = state.shaded;
+  let expandedHeight = state.height;
+  let busy = false;
+  if (shaded) root.classList.add("shaded");
 
   async function toggleShade() {
+    if (busy) return;
+    busy = true;
     try {
       const scale = await win.scaleFactor();
       const size = (await win.innerSize()).toLogical(scale);
@@ -192,20 +202,25 @@ export function initTitlebar() {
         expandedHeight = size.height;
         shaded = true;
         root.classList.add("shaded");
+        // Tell Rust first, so it stops recording the height while the window shrinks.
+        await setPrefs({ shaded: true });
         await win.setResizable(false);
         await win.setMinSize(new LogicalSize(MIN_WIDTH, BAR_HEIGHT));
         await win.setSize(new LogicalSize(size.width, BAR_HEIGHT));
       } else {
-        shaded = false;
         root.classList.remove("shaded");
         await win.setMinSize(new LogicalSize(MIN_WIDTH, MIN_HEIGHT));
         await win.setSize(
           new LogicalSize(size.width, Math.max(expandedHeight, MIN_HEIGHT)),
         );
         await win.setResizable(true);
+        await setPrefs({ shaded: false });
+        shaded = false;
       }
     } catch (err) {
       console.error("window shade failed", err);
+    } finally {
+      busy = false;
     }
   }
 
@@ -248,5 +263,4 @@ export function initTitlebar() {
   }
 
   applyPrefs();
-  void applyPinned();
 }
