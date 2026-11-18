@@ -1,3 +1,8 @@
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/allenasat044-prog/assets/main/gifs/rrr.gif" width="100%" height="250" alt="Banner">
+</p>
+
 # Farrey
 
 A Stickies-style desktop note where every sticker is a live `README.md`.
