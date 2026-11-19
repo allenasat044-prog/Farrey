@@ -465,11 +465,7 @@ async fn new_sticker(app: AppHandle, from_id: String) -> Result<(), String> {
 
 /// Closes a sticker for good (its window and its saved layout). The note file is kept.
 #[tauri::command]
-async fn close_sticker(
-    app: AppHandle,
-    id: String,
-    store: State<'_, Shared>,
-) -> Result<(), String> {
+async fn close_sticker(app: AppHandle, id: String, store: State<'_, Shared>) -> Result<(), String> {
     {
         let mut guard = lock(&store);
         guard.data.stickers.retain(|s| s.id != id);
@@ -602,7 +598,13 @@ fn setup_macos_menu(app: &AppHandle) -> tauri::Result<()> {
     )?;
 
     let minimize = PredefinedMenuItem::minimize(app, None)?;
-    let close = MenuItem::with_id(app, "close-sticker", "Close Sticker", true, Some("CmdOrCtrl+W"))?;
+    let close = MenuItem::with_id(
+        app,
+        "close-sticker",
+        "Close Sticker",
+        true,
+        Some("CmdOrCtrl+W"),
+    )?;
     let window_menu = Submenu::with_items(app, "Window", true, &[&minimize, &close])?;
 
     let menu = Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])?;
