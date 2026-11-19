@@ -248,3 +248,55 @@
 .hljs-params {
   color: #a3262a;
 }
+
+/* find in note */
+.findbar {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  right: 8px;
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 4px 8px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.96);
+  border: 1px solid rgb(0 0 0 / 0.15);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.2);
+}
+.findbar[hidden] {
+  display: none;
+}
+.findbar input {
+  flex: 1;
+  min-width: 50px;
+  padding: 2px 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: rgb(45 40 20);
+  font: inherit;
+  font-size: 13px;
+}
+.find-count {
+  min-width: 30px;
+  text-align: right;
+  font-size: 11px;
+  color: rgb(45 40 20 / 0.7);
+  white-space: nowrap;
+}
+.findbar .tb-btn {
+  flex: none;
+  color: rgb(45 40 20 / 0.7);
+}
+mark.find-hit {
+  padding: 0;
+  border-radius: 2px;
+  background: rgb(255 214 0 / 0.65);
+  color: inherit;
+}
+mark.find-hit.current {
+  background: rgb(255 140 0 / 0.9);
+  outline: 1px solid rgb(180 90 0);
+}

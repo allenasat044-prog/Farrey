@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { reportError, setPrefs, stickerId, type StickerState } from "./sticker";
 
@@ -139,17 +140,8 @@ export function initTitlebar(state: StickerState) {
     }
   });
 
-  /* ---------- keyboard ---------- */
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") popover.hidden = true;
-    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "n") {
-      e.preventDefault();
-      newSticker();
-    }
-  });
-
   /* ---------- close (removes the sticker, keeps its file) ---------- */
-  closeBtn.addEventListener("click", async () => {
+  async function closeSticker() {
     for (const hook of beforeCloseHooks) {
       try {
         await hook();
@@ -161,6 +153,29 @@ export function initTitlebar(state: StickerState) {
       await invoke("close_sticker", { id: stickerId() });
     } catch (err) {
       reportError(`Could not close: ${errorMessage(err)}`);
+    }
+  }
+  closeBtn.addEventListener("click", () => void closeSticker());
+
+  // macOS: the menu's "Close Sticker" (Cmd+W) asks the focused window to close itself.
+  getCurrentWebviewWindow()
+    .listen("farrey-close", () => void closeSticker())
+    .catch((err) => console.error("could not listen for close requests", err));
+
+  /* ---------- keyboard ---------- */
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") popover.hidden = true;
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    const key = e.key.toLowerCase();
+    if (key === "n" && !e.shiftKey) {
+      e.preventDefault();
+      newSticker();
+    } else if (key === "w" && !e.shiftKey) {
+      e.preventDefault();
+      void closeSticker();
+    } else if (key === "p" && e.shiftKey) {
+      e.preventDefault();
+      pinBtn.click();
     }
   });
 

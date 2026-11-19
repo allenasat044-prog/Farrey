@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { initFind, refreshFind } from "./find";
 import { findTaskLines, renderMarkdown, toggleTaskLine } from "./markdown";
 import { stickerId, type StickerState } from "./sticker";
 import { addTitlebarButton, onBeforeClose, setTitleText } from "./titlebar";
@@ -109,6 +110,7 @@ function renderPreview() {
     renderMarkdown(source, preview);
   }
   preview.scrollTop = scrollTop;
+  refreshFind();
 }
 
 function setMode(next: Mode) {
@@ -118,6 +120,7 @@ function setMode(next: Mode) {
       editor.value = source;
       showView();
       editor.focus();
+      refreshFind();
     } else {
       renderPreview();
       showView();
@@ -223,6 +226,7 @@ async function pollOnce() {
             const pos = Math.min(editor.selectionStart, source.length);
             editor.value = source;
             editor.setSelectionRange(pos, pos);
+            refreshFind();
           } else {
             renderPreview();
           }
@@ -244,6 +248,7 @@ function wireEvents() {
   editor.addEventListener("input", () => {
     source = editor.value;
     scheduleSave();
+    refreshFind();
   });
 
   // Tick a checkbox in the preview -> flip the matching "- [ ]" line in the file.
@@ -310,6 +315,12 @@ export async function initNote(state: StickerState) {
   addTitlebarButton("right", openBtn);
   addTitlebarButton("right", modeBtn);
   onBeforeClose(saveNow);
+  initFind({
+    preview,
+    editor,
+    mode: () => mode,
+    hasNote: () => path !== null,
+  });
   window.addEventListener("farrey:error", (e) =>
     toast(String((e as CustomEvent).detail)),
   );

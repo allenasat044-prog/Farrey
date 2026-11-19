@@ -11,7 +11,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
 
 const DEFAULT_WIDTH: f64 = 360.0;
@@ -427,24 +430,18 @@ fn set_file(
 }
 
 /// Creates a new sticker backed by a fresh note file in `Documents/Farrey`.
-#[tauri::command]
-async fn new_sticker(
-    app: AppHandle,
-    from_id: String,
-    store: State<'_, Shared>,
-) -> Result<(), String> {
+/// It copies the color and opacity of `from_id` and opens slightly offset from it.
+fn create_sticker(app: &AppHandle, from_id: Option<&str>) -> Result<(), String> {
+    let shared = app.state::<Shared>();
     let (color, opacity, x, y) = {
-        let guard = lock(&store);
-        let found = guard
-            .data
-            .stickers
-            .iter()
-            .find(|s| s.id == from_id)
+        let guard = lock(&shared);
+        let found = from_id
+            .and_then(|fid| guard.data.stickers.iter().find(|s| s.id == fid))
             .map(|s| (s.color.clone(), s.opacity, s.x, s.y));
         found.unwrap_or_else(|| ("yellow".to_string(), 1.0, None, None))
     };
 
-    let path = create_note_file(&notes_dir(&app)?, "Note", "")?;
+    let path = create_note_file(&notes_dir(app)?, "Note", "")?;
     let mut sticker = blank_sticker(Some(path.to_string_lossy().into_owned()));
     sticker.color = color;
     sticker.opacity = opacity;
@@ -452,13 +449,18 @@ async fn new_sticker(
     sticker.y = y.map(|v| v + CASCADE_OFFSET);
 
     {
-        let mut guard = lock(&store);
+        let mut guard = lock(&shared);
         guard.data.stickers.push(sticker.clone());
         guard.dirty = true;
     }
-    let win = build_window(&app, &sticker)?;
+    let win = build_window(app, &sticker)?;
     let _ = win.set_focus();
     Ok(())
+}
+
+#[tauri::command]
+async fn new_sticker(app: AppHandle, from_id: String) -> Result<(), String> {
+    create_sticker(&app, Some(&from_id))
 }
 
 /// Closes a sticker for good (its window and its saved layout). The note file is kept.
@@ -481,25 +483,179 @@ async fn close_sticker(
 }
 
 /* ------------------------------------------------------------------ */
+/* Tray, menus and window visibility                                   */
+/* ------------------------------------------------------------------ */
+
+fn sticker_windows(app: &AppHandle) -> Vec<WebviewWindow> {
+    app.webview_windows()
+        .into_iter()
+        .filter(|(label, _)| label.starts_with("sticker-"))
+        .map(|(_, w)| w)
+        .collect()
+}
+
+fn show_all(app: &AppHandle) {
+    let wins = sticker_windows(app);
+    for w in &wins {
+        let _ = w.show();
+        let _ = w.unminimize();
+    }
+    if let Some(w) = wins.last() {
+        let _ = w.set_focus();
+    }
+}
+
+fn hide_all(app: &AppHandle) {
+    for w in sticker_windows(app) {
+        let _ = w.hide();
+    }
+}
+
+fn show_or_create(app: &AppHandle) {
+    if sticker_windows(app).is_empty() {
+        if let Err(e) = create_sticker(app, None) {
+            eprintln!("Could not create a sticker: {e}");
+        }
+    } else {
+        show_all(app);
+    }
+}
+
+/// Window creation must not happen on the main thread from a menu/event callback
+/// (it can deadlock on Windows), so these helpers hop to a worker thread first.
+fn spawn_show_or_create(app: &AppHandle) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move { show_or_create(&handle) });
+}
+
+fn spawn_new_sticker(app: &AppHandle) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = create_sticker(&handle, None) {
+            eprintln!("Could not create a sticker: {e}");
+        }
+    });
+}
+
+fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
+    let new_item = MenuItem::with_id(app, "tray-new", "New Sticker", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "tray-show", "Show All Stickers", true, None::<&str>)?;
+    let hide_item = MenuItem::with_id(app, "tray-hide", "Hide All Stickers", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "tray-quit", "Quit Farrey", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(
+        app,
+        &[&new_item, &show_item, &hide_item, &separator, &quit_item],
+    )?;
+
+    let mut builder = TrayIconBuilder::with_id("farrey")
+        .tooltip("Farrey")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| {
+            let id: &str = event.id().as_ref();
+            match id {
+                "tray-new" => spawn_new_sticker(app),
+                "tray-show" => show_all(app),
+                "tray-hide" => hide_all(app),
+                "tray-quit" => app.exit(0),
+                _ => {}
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
+/// macOS only: our own menu bar, so Cmd+W closes the *sticker* through the app
+/// (which also forgets it) instead of just destroying the window.
+#[cfg(target_os = "macos")]
+fn setup_macos_menu(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::Submenu;
+
+    let hide = PredefinedMenuItem::hide(app, None)?;
+    let hide_others = PredefinedMenuItem::hide_others(app, None)?;
+    let show_all_item = PredefinedMenuItem::show_all(app, None)?;
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let quit = PredefinedMenuItem::quit(app, None)?;
+    let app_menu = Submenu::with_items(
+        app,
+        "Farrey",
+        true,
+        &[&hide, &hide_others, &show_all_item, &sep1, &quit],
+    )?;
+
+    let undo = PredefinedMenuItem::undo(app, None)?;
+    let redo = PredefinedMenuItem::redo(app, None)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    let cut = PredefinedMenuItem::cut(app, None)?;
+    let copy = PredefinedMenuItem::copy(app, None)?;
+    let paste = PredefinedMenuItem::paste(app, None)?;
+    let select_all = PredefinedMenuItem::select_all(app, None)?;
+    let edit_menu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[&undo, &redo, &sep2, &cut, &copy, &paste, &select_all],
+    )?;
+
+    let minimize = PredefinedMenuItem::minimize(app, None)?;
+    let close = MenuItem::with_id(app, "close-sticker", "Close Sticker", true, Some("CmdOrCtrl+W"))?;
+    let window_menu = Submenu::with_items(app, "Window", true, &[&minimize, &close])?;
+
+    let menu = Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+/// Asks the focused sticker to close itself (the frontend saves first).
+fn close_focused(app: &AppHandle) {
+    for w in sticker_windows(app) {
+        if w.is_focused().unwrap_or(false) {
+            let _ = app.emit_to(w.label(), "farrey-close", ());
+            break;
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* App entry                                                           */
 /* ------------------------------------------------------------------ */
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        // Must be registered first. A second launch just brings the stickers forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            spawn_show_or_create(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .on_menu_event(|app, event| {
+            let id: &str = event.id().as_ref();
+            if id == "close-sticker" {
+                close_focused(app);
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             let state_path = handle.path().app_data_dir()?.join("state.json");
+            let first_run = !state_path.exists();
             let mut store = Store::load(state_path);
 
-            // First launch (or every sticker was closed): start with a welcome note.
             if store.data.stickers.is_empty() {
-                let file = notes_dir(&handle)
-                    .and_then(|dir| create_note_file(&dir, "Welcome", WELCOME))
-                    .ok()
-                    .map(|p| p.to_string_lossy().into_owned());
+                // Only the very first launch gets a welcome note. Later launches with
+                // no stickers left start with a blank one (Open / New buttons).
+                let file = if first_run {
+                    notes_dir(&handle)
+                        .and_then(|dir| create_note_file(&dir, "Welcome", WELCOME))
+                        .ok()
+                        .map(|p| p.to_string_lossy().into_owned())
+                } else {
+                    None
+                };
                 store.data.stickers.push(blank_sticker(file));
                 store.dirty = true;
             }
@@ -509,6 +665,10 @@ pub fn run() {
             for s in &stickers {
                 build_window(&handle, s)?;
             }
+
+            setup_tray(&handle)?;
+            #[cfg(target_os = "macos")]
+            setup_macos_menu(&handle)?;
 
             // Write pending changes (window moves, resizes, ...) to disk about once a second.
             let flusher = handle.clone();
@@ -533,10 +693,29 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Farrey");
 
-    app.run(|handle, event| {
-        if let tauri::RunEvent::Exit = event {
+    app.run(|handle, event| match event {
+        // Closing the last sticker keeps Farrey alive in the tray. A real quit
+        // (tray menu, Cmd+Q) still exits: those happen while windows exist
+        // or with an explicit exit code.
+        tauri::RunEvent::ExitRequested { api, code, .. } => {
+            if code.is_none() && handle.webview_windows().is_empty() {
+                api.prevent_exit();
+            }
+        }
+        tauri::RunEvent::Exit => {
             let shared = handle.state::<Shared>();
             lock(&shared).flush();
         }
+        // macOS: clicking the Dock icon when no sticker is visible.
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } => {
+            if !has_visible_windows {
+                spawn_show_or_create(handle);
+            }
+        }
+        _ => {}
     });
 }
