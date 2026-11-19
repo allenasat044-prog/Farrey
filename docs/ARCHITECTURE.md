@@ -5,9 +5,9 @@
 - Every sticker is backed by a plain `.md` file. Farrey never hides your notes in a database.
 - New stickers create their file in `<Documents>/Farrey/` (`Note.md`, `Note 2.md`, ...). Existing READMEs can be opened from anywhere.
 - Layout and preferences live in one `state.json` in the OS app-data directory:
-  - macOS: `~/Library/Application Support/com.farrey.app/state.json`
-  - Windows: `%APPDATA%\com.farrey.app\state.json`
-  - Linux: `~/.local/share/com.farrey.app/state.json`
+  - macOS: `~/Library/Application Support/com.farrey.desktop/state.json`
+  - Windows: `%APPDATA%\com.farrey.desktop\state.json`
+  - Linux: `~/.local/share/com.farrey.desktop/state.json`
 - `state.json` holds, per sticker: file path, color, opacity, float-on-top, shaded, size and position.
 - Closing a sticker (the x button) removes it from `state.json` but never deletes its file.
   Quitting the app keeps every sticker, so they all come back on the next launch.

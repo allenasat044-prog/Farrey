@@ -25,7 +25,16 @@ Releases are built by GitHub Actions (`.github/workflows/release.yml`) when you 
 
 Unsigned builds work but show security warnings.
 
-- **macOS:** needs an Apple Developer account. Add these repository secrets and the workflow will sign and notarize automatically: `APPLE_CERTIFICATE` (base64 of the .p12), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password), `APPLE_TEAM_ID`. Then remove `"signingIdentity": "-"` from `src-tauri/tauri.conf.json`, which currently forces ad-hoc signing.
+- **macOS:** needs an Apple Developer account. Add these repository secrets: `APPLE_CERTIFICATE` (base64 of the .p12), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password), `APPLE_TEAM_ID`. Then, in `.github/workflows/release.yml`, add them to the `env:` block of the "Build and publish release" step, next to `GITHUB_TOKEN`:
+  ```yaml
+  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+  APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+  APPLE_ID: ${{ secrets.APPLE_ID }}
+  APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+  ```
+  Only add them once all six secrets exist: an empty value makes the build fail. Also remove `"signingIdentity": "-"` from `src-tauri/tauri.conf.json`, which currently forces ad-hoc signing.
 - **Windows:** needs a code-signing certificate. See the Tauri guide: https://tauri.app/distribute/sign/windows/
 
 ## Per-OS test checklist

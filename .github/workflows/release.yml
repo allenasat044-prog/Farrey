@@ -58,14 +58,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional macOS signing and notarization. Leave these secrets unset
-          # for unsigned builds (see docs/RELEASING.md).
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # No Apple signing variables here on purpose: Tauri treats even an empty
+          # APPLE_CERTIFICATE as "sign with this certificate" and fails. To sign
+          # builds later, see docs/RELEASING.md.
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Farrey ${{ github.ref_name }}"
