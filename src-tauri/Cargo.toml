@@ -2,6 +2,9 @@
 name = "farrey"
 version = "0.1.0"
 description = "A Stickies-style desktop note that is backed by a live README.md"
+authors = ["Farrey contributors"]
+license = "MIT"
+repository = "https://github.com/allenasat044-prog/Farrey"
 edition = "2021"
 
 [lib]
@@ -18,3 +21,10 @@ tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -25,6 +25,21 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "Farrey contributors",
+    "copyright": "Copyright (c) 2026 Farrey contributors",
+    "license": "MIT",
+    "category": "Productivity",
+    "shortDescription": "Sticky notes backed by Markdown files",
+    "longDescription": "Farrey is a Stickies-style desktop note where every sticker is a live Markdown file. Open a README, tick checkboxes, edit in place, and keep your notes on top of your desktop.",
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1"]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "-"
+    }
   }
 }
