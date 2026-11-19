@@ -270,3 +270,12 @@ body {
   height: 10px;
   cursor: nesw-resize;
 }
+
+/* make "float on top" unmistakable: filled icon + stronger background when on */
+.tb-btn.on {
+  background: rgb(0 0 0 / 0.22);
+}
+.tb-btn.on svg rect:nth-of-type(2) {
+  fill: currentColor;
+  fill-opacity: 0.4;
+}

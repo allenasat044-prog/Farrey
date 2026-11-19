@@ -82,6 +82,11 @@ export function initTitlebar(state: StickerState) {
     root.style.setProperty("--alpha", String(prefs.opacity));
     pinBtn.classList.toggle("on", prefs.pinned);
     pinBtn.setAttribute("aria-pressed", String(prefs.pinned));
+    const label = prefs.pinned
+      ? "Float on top: ON (click to let other windows cover this sticker)"
+      : "Float on top: off (click to keep this sticker above other windows)";
+    pinBtn.title = label;
+    pinBtn.setAttribute("aria-label", label);
   }
 
   pinBtn.addEventListener("click", () => {
