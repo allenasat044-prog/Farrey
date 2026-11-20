@@ -1,22 +1,16 @@
 # Farrey
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/allenasat044-prog/assets/main/gifs/catA.gif" width="100%" height="250" alt="Banner">
-</p>
-
-
 A Stickies-style desktop note where **every sticker is a live Markdown file**.
 Open a `README.md`, tick its checkboxes, edit it in place, and keep it floating on your desktop.
 Works on macOS, Windows and Linux. Built with [Tauri](https://tauri.app).
 
-<!--
-Add screenshots here once you have them, for example:
-![Farrey stickers](docs/screenshots/stickers.png)
--->
+<p align="center">
+  <img src="docs/screenshots/hero.png" alt="Farrey: a normal note with a formatting bar (left) and a README sticker (right)" width="900">
+</p>
 
 ## Features
 
-Every sticker has two modes. Switch with the **MD** button in the title bar (or Cmd/Ctrl+Shift+M). Each sticker remembers its own file for each mode.
+Every sticker has two modes. Switch with the **MD** button in the title bar (or Cmd/Ctrl+Shift+M). Each sticker remembers its own file for each mode. Above: a normal note on the left, and the same kind of sticker in README mode on the right.
 
 - **Normal mode (default):** a regular rich-text note. Just type. Bold, italic, underline, strikethrough, bullet and numbered lists, a heading, and a font and size picker. Saved as a small `.html` file in `Documents/Farrey`.
 - **README mode:** every sticker is a live Markdown file. GitHub-style rendering with code highlighting, an edit/preview toggle (Cmd/Ctrl+E), clickable checkboxes that write back to the file, and live reload when another program changes it.
@@ -139,8 +133,3 @@ Releases are built by GitHub Actions. See [docs/RELEASING.md](docs/RELEASING.md)
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/allenasat044-prog/assets/main/gifs/coolCat.gif" width="100%" height="250" alt="Banner">
-</p>

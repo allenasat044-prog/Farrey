@@ -359,7 +359,7 @@ mark.find-hit.current {
   -webkit-user-select: none;
 }
 .richbar select {
-  max-width: 96px;
+  max-width: 124px;
   padding: 1px 2px;
   border: 1px solid rgb(0 0 0 / 0.18);
   border-radius: 6px;

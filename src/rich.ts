@@ -142,7 +142,11 @@ export function initRich(state: StickerState): RichApi {
 
   function updateTitle() {
     if (!active) return;
-    setTitleText(path ? `${dirty ? "• " : ""}${basename(path)}` : "New note");
+    setTitleText(
+      path
+        ? `${dirty ? "• " : ""}${basename(path).replace(/\.html?$/i, "")}`
+        : "New note",
+    );
   }
 
   async function load() {
