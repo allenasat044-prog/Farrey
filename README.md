@@ -1,5 +1,10 @@
 # Farrey
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/allenasat044-prog/assets/main/gifs/catA.gif" width="100%" height="250" alt="Banner">
+</p>
+
+
 A Stickies-style desktop note where **every sticker is a live Markdown file**.
 Open a `README.md`, tick its checkboxes, edit it in place, and keep it floating on your desktop.
 Works on macOS, Windows and Linux. Built with [Tauri](https://tauri.app).
