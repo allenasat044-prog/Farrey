@@ -3,7 +3,16 @@ name: CI
 on:
   push:
     branches: [main]
+    # Documentation-only changes cannot break the app, so they skip the checks.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
 
 jobs:
   check:

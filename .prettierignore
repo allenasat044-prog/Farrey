@@ -2,3 +2,6 @@ dist
 src-tauri/target
 src-tauri/gen
 package-lock.json
+
+# Hand-written docs (README banners, tables, HTML) should never fail CI on style.
+*.md
