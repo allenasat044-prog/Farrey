@@ -1,5 +1,6 @@
 // Usage: npm run version:set -- 0.2.0
 // Keeps package.json, tauri.conf.json and Cargo.toml on the same version.
+import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 const version = process.argv[2];
@@ -27,6 +28,15 @@ if (updated === cargo && !cargo.includes(`version = "${version}"`)) {
 }
 writeFileSync(cargoPath, updated);
 console.log(`updated ${cargoPath}`);
+
+// Rewriting the JSON files changes their layout, so format them the way CI expects.
+try {
+  execSync("npx prettier --write package.json src-tauri/tauri.conf.json", {
+    stdio: "inherit",
+  });
+} catch {
+  console.warn("Could not run prettier. Run `npm run format` before committing.");
+}
 console.log(
   `\nVersion is now ${version}. Next: build once so Cargo.lock updates, then commit.`,
 );
