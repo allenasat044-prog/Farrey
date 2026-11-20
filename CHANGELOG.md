@@ -1,12 +1,12 @@
 # Changelog
 
-## 0.2.1 (unreleased)
+## 0.2.1
 
 - Fixed: the open-file and edit buttons showed in normal mode (and the edit button with no README open). They are now hidden when they do not apply.
 - The font menu is wide enough for "Handwriting", and normal notes show their name without `.html`.
 - README screenshots; GitHub Actions updated to versions that run on Node 24.
 
-## 0.2.0 (unreleased)
+## 0.2.0
 
 - **Two sticker modes.** New stickers are normal rich-text notes: just type, with bold, italic, underline, strikethrough, lists, a heading, and a font and size picker. README mode keeps everything from 0.1.0. Switch with the new **MD** button or Cmd/Ctrl+Shift+M; each mode remembers its own file.
 - Normal notes are saved as `.html` files in `Documents/Farrey`. The file is created on your first edit, so empty stickers leave nothing behind.

@@ -1,6 +1,6 @@
 [package]
 name = "farrey"
-version = "0.2.0"
+version = "0.2.1"
 description = "A Stickies-style desktop note that is backed by a live README.md"
 authors = ["Farrey contributors"]
 license = "MIT"
