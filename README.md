@@ -139,3 +139,8 @@ Releases are built by GitHub Actions. See [docs/RELEASING.md](docs/RELEASING.md)
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/allenasat044-prog/assets/main/gifs/coolCat.gif" width="100%" height="250" alt="Banner">
+</p>
