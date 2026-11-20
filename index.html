@@ -53,6 +53,15 @@
           >
             <span class="dot"></span>
           </button>
+          <button
+            id="btn-mode"
+            class="tb-btn md-btn"
+            title="README mode: off (click to use this sticker as a Markdown file)"
+            aria-label="README mode"
+            aria-pressed="false"
+          >
+            <span>MD</span>
+          </button>
         </div>
         <div class="tb-title" id="tb-title">Farrey</div>
         <div class="tb-side tb-right" id="tb-right">
@@ -70,6 +79,103 @@
         </div>
       </header>
       <main id="content">
+        <div id="rich-wrap" class="rich-wrap" hidden>
+          <div
+            id="rich"
+            class="rich"
+            contenteditable="true"
+            spellcheck="true"
+            role="textbox"
+            aria-multiline="true"
+            aria-label="Note"
+          ></div>
+          <div id="richbar" class="richbar">
+            <select id="rich-font" title="Font" aria-label="Font"></select>
+            <button
+              id="rich-smaller"
+              class="tb-btn"
+              title="Smaller text"
+              aria-label="Smaller text"
+            >
+              <span class="rb-a">A−</span>
+            </button>
+            <span id="rich-size" class="rich-size" title="Text size"></span>
+            <button
+              id="rich-bigger"
+              class="tb-btn"
+              title="Bigger text"
+              aria-label="Bigger text"
+            >
+              <span class="rb-a">A+</span>
+            </button>
+            <span class="rb-sep"></span>
+            <button
+              class="tb-btn"
+              data-cmd="bold"
+              title="Bold (Cmd/Ctrl+B)"
+              aria-label="Bold"
+            >
+              <b>B</b>
+            </button>
+            <button
+              class="tb-btn"
+              data-cmd="italic"
+              title="Italic (Cmd/Ctrl+I)"
+              aria-label="Italic"
+            >
+              <i>I</i>
+            </button>
+            <button
+              class="tb-btn"
+              data-cmd="underline"
+              title="Underline (Cmd/Ctrl+U)"
+              aria-label="Underline"
+            >
+              <u>U</u>
+            </button>
+            <button
+              class="tb-btn"
+              data-cmd="strikeThrough"
+              title="Strikethrough"
+              aria-label="Strikethrough"
+            >
+              <s>S</s>
+            </button>
+            <span class="rb-sep"></span>
+            <button
+              class="tb-btn"
+              data-cmd="insertUnorderedList"
+              title="Bullet list"
+              aria-label="Bullet list"
+            >
+              •≡
+            </button>
+            <button
+              class="tb-btn"
+              data-cmd="insertOrderedList"
+              title="Numbered list"
+              aria-label="Numbered list"
+            >
+              1.
+            </button>
+            <button
+              class="tb-btn"
+              data-cmd="heading"
+              title="Heading"
+              aria-label="Heading"
+            >
+              <b>H</b>
+            </button>
+            <button
+              class="tb-btn"
+              data-cmd="clear"
+              title="Clear formatting"
+              aria-label="Clear formatting"
+            >
+              Tx
+            </button>
+          </div>
+        </div>
         <div id="empty" class="empty">
           <h1>Farrey</h1>
           <p id="empty-hint">Drop a README.md here, or</p>

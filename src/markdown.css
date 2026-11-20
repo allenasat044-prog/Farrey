@@ -300,3 +300,97 @@ mark.find-hit.current {
   background: rgb(255 140 0 / 0.9);
   outline: 1px solid rgb(180 90 0);
 }
+
+/* normal (rich-text) notes */
+.rich-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rich-wrap[hidden] {
+  display: none;
+}
+.rich {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px;
+  outline: 0;
+  font-family: var(--rich-font, system-ui, sans-serif);
+  font-size: var(--rich-size, 14px);
+  line-height: 1.5;
+  color: rgb(var(--ink));
+  overflow-wrap: break-word;
+}
+.rich:empty::before {
+  content: "Type your note…";
+  opacity: 0.4;
+  pointer-events: none;
+}
+.rich p,
+.rich div {
+  margin: 0 0 0.5em;
+}
+.rich h1,
+.rich h2,
+.rich h3 {
+  margin: 0.2em 0 0.4em;
+  line-height: 1.25;
+}
+.rich h2 {
+  font-size: 1.35em;
+}
+.rich ul,
+.rich ol {
+  margin: 0 0 0.5em;
+  padding-left: 1.4em;
+}
+.richbar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border-top: 1px solid rgb(var(--ink) / 0.14);
+  background: rgb(var(--bar) / calc(var(--alpha) * 0.55));
+  user-select: none;
+  -webkit-user-select: none;
+}
+.richbar select {
+  max-width: 96px;
+  padding: 1px 2px;
+  border: 1px solid rgb(0 0 0 / 0.18);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.6);
+  color: rgb(45 40 20);
+  font: inherit;
+  font-size: 12px;
+}
+.richbar .tb-btn {
+  font-size: 13px;
+}
+.rb-a {
+  font-size: 11px;
+  font-weight: 600;
+}
+.rich-size {
+  min-width: 20px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.75;
+}
+.rb-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: rgb(var(--ink) / 0.2);
+}
+
+/* the README-mode toggle in the title bar */
+.md-btn span {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}

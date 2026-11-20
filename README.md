@@ -11,13 +11,15 @@ Add screenshots here once you have them, for example:
 
 ## Features
 
-- **Stickies-style notes:** frameless windows in six colors, adjustable opacity, float-on-top, and window shade (double-click the title bar).
-- **Real Markdown files:** every sticker is a plain `.md` file you own. Closing a sticker never deletes its file.
-- **README viewer and editor:** GitHub-style rendering with code highlighting, an edit/preview toggle, and auto-save.
-- **Clickable checkboxes:** tick a `- [ ]` item in the preview and the file on disk is updated.
-- **Live reload:** edit the file in another editor and the sticker updates within a second.
-- **Many stickers:** each remembers its file, color, size and position across restarts.
+Every sticker has two modes. Switch with the **MD** button in the title bar (or Cmd/Ctrl+Shift+M). Each sticker remembers its own file for each mode.
+
+- **Normal mode (default):** a regular rich-text note. Just type. Bold, italic, underline, strikethrough, bullet and numbered lists, a heading, and a font and size picker. Saved as a small `.html` file in `Documents/Farrey`.
+- **README mode:** every sticker is a live Markdown file. GitHub-style rendering with code highlighting, an edit/preview toggle (Cmd/Ctrl+E), clickable checkboxes that write back to the file, and live reload when another program changes it.
+- **Stickies-style windows:** frameless notes in six colors, adjustable opacity, float-on-top, and window shade (double-click the title bar).
+- **You own your notes:** plain files, never a hidden database. Closing a sticker never deletes its file.
+- **Many stickers**, each remembering its mode, file, color, size and position across restarts.
 - **Find in note**, a tray / menu bar icon, and single-instance handling.
+- **Global hotkeys**, **start at login**, **Open With** for Markdown files, and a **command line**. See below.
 
 ## Install
 
@@ -60,16 +62,52 @@ Run the installer. If SmartScreen says "Windows protected your PC", click **More
 
 ## Using Farrey
 
-| Shortcut (Cmd on macOS, Ctrl elsewhere) | Action                                                |
-| --------------------------------------- | ----------------------------------------------------- |
-| Cmd/Ctrl+N                              | New sticker                                           |
-| Cmd/Ctrl+O                              | Open a file in this sticker (or drag a `.md` onto it) |
-| Cmd/Ctrl+E                              | Toggle edit / preview                                 |
-| Cmd/Ctrl+F                              | Find in note                                          |
-| Cmd/Ctrl+Shift+P                        | Toggle float on top                                   |
-| Cmd/Ctrl+W                              | Close this sticker (its file is kept)                 |
+| Shortcut (Cmd on macOS, Ctrl elsewhere) | Action                                         |
+| --------------------------------------- | ---------------------------------------------- |
+| Cmd/Ctrl+N                              | New sticker (normal note)                      |
+| Cmd/Ctrl+Shift+M                        | Switch between normal and README mode          |
+| Cmd/Ctrl+B / I / U                      | Bold / italic / underline (normal mode)        |
+| Cmd/Ctrl+O                              | Open a Markdown file (switches to README mode) |
+| Cmd/Ctrl+E                              | Toggle edit / preview (README mode)            |
+| Cmd/Ctrl+F                              | Find in note                                   |
+| Cmd/Ctrl+Shift+P                        | Toggle float on top                            |
+| Cmd/Ctrl+W                              | Close this sticker (its file is kept)          |
+
+Dropping a `.md` file onto any sticker switches it to README mode and opens the file.
 
 New notes live in `Documents/Farrey`. Layout and preferences are stored in `state.json` in your app-data folder (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+
+## Hotkeys, start at login, Open With and the command line
+
+**Global hotkeys** work from any app:
+
+| Default              | Action                    |
+| -------------------- | ------------------------- |
+| Cmd/Ctrl+Alt+Shift+F | Show or hide all stickers |
+| Cmd/Ctrl+Alt+Shift+N | New sticker from anywhere |
+
+To change or turn them off, edit `settings.json` and restart Farrey. Set a hotkey to `""` to disable it, or use a name like `"CommandOrControl+Alt+K"`.
+
+- macOS: `~/Library/Application Support/com.farrey.desktop/settings.json`
+- Windows: `%APPDATA%\com.farrey.desktop\settings.json`
+- Linux: `~/.local/share/com.farrey.desktop/settings.json`
+
+If a hotkey does nothing, another app probably owns it: pick a different one. Global hotkeys do not work on Linux under Wayland (use an X11 session).
+
+**Start at login:** tray / menu bar icon, then **Start at Login**. This is available in the installed app, not in a development build.
+
+**Open With:** right-click any `.md` or `.markdown` file, choose Open With, then Farrey. It opens in a new README-mode sticker, or brings forward the sticker that already has it.
+
+**Command line:** pass files or folders (a folder opens its README):
+
+```bash
+farrey README.md
+farrey .
+```
+
+- macOS: `open -a Farrey README.md` (or run `/Applications/Farrey.app/Contents/MacOS/farrey .` for a folder).
+- Windows: run the installed `Farrey.exe` with the file as an argument.
+- Linux: `farrey README.md` after installing the `.deb`, or pass the path to the AppImage.
 
 ## Development
 

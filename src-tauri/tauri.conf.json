@@ -40,6 +40,15 @@
     "macOS": {
       "minimumSystemVersion": "10.15",
       "signingIdentity": "-"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown"],
+        "name": "Markdown document",
+        "description": "Markdown document",
+        "role": "Editor",
+        "mimeType": "text/markdown"
+      }
+    ]
   }
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+- **Two sticker modes.** New stickers are normal rich-text notes: just type, with bold, italic, underline, strikethrough, lists, a heading, and a font and size picker. README mode keeps everything from 0.1.0. Switch with the new **MD** button or Cmd/Ctrl+Shift+M; each mode remembers its own file.
+- Normal notes are saved as `.html` files in `Documents/Farrey`. The file is created on your first edit, so empty stickers leave nothing behind.
+- Find in note works in normal notes too.
+- Dropping a `.md` file onto a normal sticker switches it to README mode.
+- Stickers saved by 0.1.0 stay in README mode.
+- **Global hotkeys:** show/hide all stickers, and create a new sticker from anywhere. Configurable in `settings.json`.
+- **Start at login** option in the tray / menu bar menu (installed app only).
+- **Open With Farrey** for `.md` / `.markdown` files, and a command line: `farrey README.md`, `farrey .` (opens the folder's README).
+
 ## 0.1.0
 
 First release.

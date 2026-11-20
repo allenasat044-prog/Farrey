@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { initFind, refreshFind } from "./find";
+import { refreshFind } from "./find";
 import { findTaskLines, renderMarkdown, toggleTaskLine } from "./markdown";
 import { stickerId, type StickerState } from "./sticker";
 import { addTitlebarButton, onBeforeClose, setTitleText } from "./titlebar";
@@ -14,6 +14,20 @@ interface NoteData {
 }
 
 type Mode = "preview" | "edit";
+
+export interface NoteHooks {
+  /** Switch this sticker to README mode (used when a Markdown file is dropped or opened). */
+  switchToReadme(): Promise<void>;
+}
+
+export interface NoteApi {
+  preview: HTMLElement;
+  editor: HTMLTextAreaElement;
+  setActive(on: boolean): void;
+  flush(): Promise<void>;
+  mode(): Mode;
+  hasNote(): boolean;
+}
 
 const SAVE_DELAY_MS = 500;
 const POLL_MS = 1000;
@@ -44,6 +58,8 @@ let dirty = false; // edits not yet written to disk
 let mode: Mode = "preview";
 let saveTimer: number | undefined;
 let saving: Promise<void> | null = null;
+let active = false; // false while the sticker is in normal (rich-text) mode
+let hooks: NoteHooks;
 let toastTimer: number | undefined;
 
 /* ---------- helpers ---------- */
@@ -65,6 +81,7 @@ function toast(message: string) {
 }
 
 function updateTitle() {
+  if (!active) return;
   setTitleText(path ? `${dirty ? "• " : ""}${basename(path)}` : "Farrey");
 }
 
@@ -90,6 +107,15 @@ const openBtn = makeButton(ICON_OPEN, `Open file (${MOD}O)`, () => void pickAndO
 const modeBtn = makeButton(ICON_EDIT, `Edit (${MOD}E)`, () => toggleMode());
 
 function showView() {
+  if (!active) {
+    empty.hidden = true;
+    preview.hidden = true;
+    editor.hidden = true;
+    modeBtn.hidden = true;
+    openBtn.hidden = true;
+    return;
+  }
+  openBtn.hidden = false;
   const hasFile = path !== null;
   empty.hidden = hasFile;
   preview.hidden = !hasFile || mode !== "preview";
@@ -170,7 +196,7 @@ async function openPath(p: string, startInEdit = false, claim = true) {
   await saveNow();
   const data = await invoke<NoteData>("read_note", { path: p });
   // Claim the file for this sticker (fails if another sticker already has it open).
-  if (claim) await invoke("set_file", { id: stickerId(), file: p });
+  if (claim) await invoke("set_file", { id: stickerId(), file: p, kind: "readme" });
   path = p;
   source = data.content;
   lastMtime = data.mtime;
@@ -212,7 +238,7 @@ async function createNote() {
 /* ---------- live reload (checks the file's modification time) ---------- */
 let polling = false;
 async function pollOnce() {
-  if (polling || !path || dirty || saving) return;
+  if (polling || !active || !path || dirty || saving) return;
   polling = true;
   try {
     const mtime = await invoke<number>("note_mtime", { path });
@@ -284,8 +310,11 @@ function wireEvents() {
     const key = e.key.toLowerCase();
     if (key === "o") {
       e.preventDefault();
-      void pickAndOpen();
-    } else if (key === "e") {
+      void (async () => {
+        if (!active) await hooks.switchToReadme();
+        await pickAndOpen();
+      })();
+    } else if (key === "e" && active) {
       e.preventDefault();
       toggleMode();
     }
@@ -304,23 +333,23 @@ function wireEvents() {
     } else if (p.type === "drop") {
       root.classList.remove("dragover");
       const file = p.paths.find((x) => SUPPORTED.test(x));
-      if (file) void tryOpen(file);
-      else toast("Drop a .md, .markdown or .txt file");
+      if (file) {
+        void (async () => {
+          if (!active) await hooks.switchToReadme();
+          await tryOpen(file);
+        })();
+      } else toast("Drop a .md, .markdown or .txt file");
     }
   });
 }
 
-export async function initNote(state: StickerState) {
+export async function initNote(state: StickerState, h: NoteHooks): Promise<NoteApi> {
+  hooks = h;
+  active = state.mode === "readme";
   emptyHint.textContent = `Drop a README.md here, or press ${MOD}O`;
   addTitlebarButton("right", openBtn);
   addTitlebarButton("right", modeBtn);
   onBeforeClose(saveNow);
-  initFind({
-    preview,
-    editor,
-    mode: () => mode,
-    hasNote: () => path !== null,
-  });
   window.addEventListener("farrey:error", (e) =>
     toast(String((e as CustomEvent).detail)),
   );
@@ -337,4 +366,17 @@ export async function initNote(state: StickerState) {
   }
 
   window.setInterval(() => void pollOnce(), POLL_MS);
+
+  return {
+    preview,
+    editor,
+    flush: saveNow,
+    mode: () => mode,
+    hasNote: () => path !== null,
+    setActive(on: boolean) {
+      active = on;
+      if (!on) void saveNow();
+      showView();
+    },
+  };
 }

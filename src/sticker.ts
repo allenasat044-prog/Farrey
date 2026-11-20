@@ -13,6 +13,12 @@ export interface StickerState {
   height: number;
   x: number | null;
   y: number | null;
+  /** "normal" = rich-text note, "readme" = Markdown file. */
+  mode: "normal" | "readme";
+  /** File behind the sticker in normal mode (`file` is the README-mode file). */
+  noteFile: string | null;
+  fontFamily: string;
+  fontSize: number;
 }
 
 export interface PrefsPatch {
@@ -20,6 +26,9 @@ export interface PrefsPatch {
   opacity?: number;
   pinned?: boolean;
   shaded?: boolean;
+  mode?: "normal" | "readme";
+  fontFamily?: string;
+  fontSize?: number;
 }
 
 /** Each sticker window is labelled "sticker-<id>". */

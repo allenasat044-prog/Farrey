@@ -1,9 +1,11 @@
-/** Find in note (Cmd/Ctrl+F): highlights matches in the preview, selects them in the editor. */
+/** Find in note (Cmd/Ctrl+F). Highlights matches in the README preview and in normal
+ *  notes, and selects them in the README editor. */
 
 export interface FindHost {
   preview: HTMLElement;
   editor: HTMLTextAreaElement;
-  mode(): "preview" | "edit";
+  rich: HTMLElement;
+  mode(): "preview" | "edit" | "rich";
   hasNote(): boolean;
 }
 
@@ -18,13 +20,22 @@ const input = el<HTMLInputElement>("find-input");
 const countEl = el("find-count");
 
 let host: FindHost;
-let hits: HTMLElement[] = []; // preview mode: <mark> elements
-let offsets: number[] = []; // edit mode: start offset of each match
+let hits: HTMLElement[] = []; // preview / rich: <mark> elements
+let offsets: number[] = []; // edit: start offset of each match
 let current = -1;
 let query = "";
 
+function inEditor(): boolean {
+  return host.mode() === "edit";
+}
+
+/** The element whose text gets <mark> highlights (everything except the textarea). */
+function domRoot(): HTMLElement {
+  return host.mode() === "rich" ? host.rich : host.preview;
+}
+
 function total(): number {
-  return host.mode() === "preview" ? hits.length : offsets.length;
+  return inEditor() ? offsets.length : hits.length;
 }
 
 function updateCount() {
@@ -37,18 +48,19 @@ function updateCount() {
   }
 }
 
-/* ---------- preview mode ---------- */
+/* ---------- DOM highlighting (preview and normal notes) ---------- */
 function clearMarks() {
-  host.preview.querySelectorAll("mark.find-hit").forEach((m) => {
+  const root = domRoot();
+  root.querySelectorAll("mark.find-hit").forEach((m) => {
     m.replaceWith(document.createTextNode(m.textContent ?? ""));
   });
-  host.preview.normalize();
+  root.normalize();
   hits = [];
 }
 
 function highlight(q: string) {
   const lower = q.toLowerCase();
-  const walker = document.createTreeWalker(host.preview, NodeFilter.SHOW_TEXT, {
+  const walker = document.createTreeWalker(domRoot(), NodeFilter.SHOW_TEXT, {
     acceptNode: (n) =>
       n.nodeValue && n.nodeValue.toLowerCase().includes(lower)
         ? NodeFilter.FILTER_ACCEPT
@@ -78,7 +90,7 @@ function highlight(q: string) {
   }
 }
 
-/* ---------- edit mode ---------- */
+/* ---------- README editor (textarea) ---------- */
 function scrollEditorTo(pos: number) {
   const editor = host.editor;
   const cs = getComputedStyle(editor);
@@ -127,10 +139,14 @@ function collectOffsets(q: string) {
 }
 
 /* ---------- shared ---------- */
+function markCurrent() {
+  hits.forEach((m, i) => m.classList.toggle("current", i === current));
+}
+
 function reveal() {
   if (current < 0) return;
-  if (host.mode() === "preview") {
-    hits.forEach((m, i) => m.classList.toggle("current", i === current));
+  if (!inEditor()) {
+    markCurrent();
     hits[current]?.scrollIntoView({ block: "center", inline: "nearest" });
   } else {
     const start = offsets[current];
@@ -152,8 +168,8 @@ function runSearch(showMatch: boolean) {
     updateCount();
     return;
   }
-  if (host.mode() === "preview") highlight(query);
-  else collectOffsets(query);
+  if (inEditor()) collectOffsets(query);
+  else highlight(query);
 
   const n = total();
   if (n === 0) current = -1;
@@ -161,9 +177,7 @@ function runSearch(showMatch: boolean) {
   else current = Math.min(Math.max(current, 0), n - 1);
   updateCount();
   if (showMatch) reveal();
-  else if (host.mode() === "preview" && current >= 0) {
-    hits.forEach((m, i) => m.classList.toggle("current", i === current));
-  }
+  else if (!inEditor() && current >= 0) markCurrent();
 }
 
 function step(delta: number) {
@@ -177,7 +191,7 @@ function step(delta: number) {
 function open() {
   if (!host.hasNote()) return;
   let selected = "";
-  if (host.mode() === "edit") {
+  if (inEditor()) {
     const e = host.editor;
     selected = e.value.slice(e.selectionStart, e.selectionEnd);
   } else {
@@ -191,17 +205,29 @@ function open() {
   runSearch(true);
 }
 
-function close() {
+/** Hide the find bar and remove all highlights. */
+export function closeFind() {
+  if (bar.hidden) return;
   bar.hidden = true;
   clearMarks();
   offsets = [];
   current = -1;
   query = "";
   countEl.textContent = "";
-  if (host.mode() === "edit") host.editor.focus({ preventScroll: true });
+  if (inEditor()) host.editor.focus({ preventScroll: true });
+  else if (host.mode() === "rich") host.rich.focus({ preventScroll: true });
 }
 
-/** Call after the preview is re-rendered or the editor text changes. */
+/** Remove highlights but keep the bar open. Normal notes call this when you click
+ *  into them, so highlights never get in the way of typing. */
+export function clearHighlights() {
+  if (bar.hidden) return;
+  clearMarks();
+  current = -1;
+  if (query) countEl.textContent = "";
+}
+
+/** Call after the preview is re-rendered or the README editor text changes. */
 export function refreshFind() {
   if (!bar.hidden) runSearch(false);
 }
@@ -213,16 +239,17 @@ export function initFind(h: FindHost) {
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      step(e.shiftKey ? -1 : 1);
+      if (hits.length === 0 && offsets.length === 0 && query) runSearch(true);
+      else step(e.shiftKey ? -1 : 1);
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      close();
+      closeFind();
     }
   });
   el("find-next").addEventListener("click", () => step(1));
   el("find-prev").addEventListener("click", () => step(-1));
-  el("find-close").addEventListener("click", close);
+  el("find-close").addEventListener("click", closeFind);
 
   window.addEventListener("keydown", (e) => {
     if (!(e.metaKey || e.ctrlKey) || e.altKey) return;

@@ -11,10 +11,14 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent,
+};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
+use tauri_plugin_global_shortcut::{
+    GlobalShortcutExt as _, Shortcut, ShortcutEvent, ShortcutState,
 };
 
 const DEFAULT_WIDTH: f64 = 360.0;
@@ -24,19 +28,10 @@ const MIN_HEIGHT: f64 = 120.0;
 const BAR_HEIGHT: f64 = 32.0;
 const CASCADE_OFFSET: f64 = 30.0;
 const COLORS: [&str; 6] = ["yellow", "blue", "green", "pink", "purple", "gray"];
+const MODES: [&str; 2] = ["normal", "readme"];
+const FONTS: [&str; 4] = ["sans", "serif", "mono", "hand"];
 
-const WELCOME: &str = r#"# Welcome to Farrey
-
-Every sticker is a plain Markdown file. This one lives in your `Documents/Farrey` folder.
-
-- [ ] Tick this box. It is written straight back to the file.
-- [ ] Press **Cmd/Ctrl+E** to edit this note, and again to preview it.
-- [ ] Click **+** (or press Cmd/Ctrl+N) for a new sticker.
-- [ ] Double-click the title bar to shade the note.
-- [ ] Drag any `README.md` onto a sticker to open it.
-
-Closing a sticker never deletes its file.
-"#;
+const WELCOME_NOTE: &str = r#"<h2>Welcome to Farrey</h2><p>This is a <b>normal note</b>. Just start typing. Select some text and use the bar at the bottom for <b>bold</b>, <i>italic</i>, <u>underline</u>, lists and a heading. The font and size are set per note.</p><ul><li>Click <b>+</b> (or press Cmd/Ctrl+N) for another sticker.</li><li>Click <b>MD</b> in the title bar for README mode: open any Markdown file, tick its checkboxes, and edit it with Cmd/Ctrl+E.</li><li>Double-click the title bar to shade the note.</li></ul><p>Closing a sticker never deletes its file.</p>"#;
 
 /* ------------------------------------------------------------------ */
 /* Persistent state                                                    */
@@ -56,6 +51,29 @@ struct Sticker {
     height: f64,
     x: Option<f64>,
     y: Option<f64>,
+    /// "normal" (rich-text note) or "readme" (Markdown file). Stickers saved by
+    /// older versions have no mode: they were all README stickers.
+    #[serde(default = "default_mode_for_saved")]
+    mode: String,
+    /// The file behind the sticker in normal mode (`file` is the README-mode file).
+    #[serde(default)]
+    note_file: Option<String>,
+    #[serde(default = "default_font_family")]
+    font_family: String,
+    #[serde(default = "default_font_size")]
+    font_size: f64,
+}
+
+fn default_mode_for_saved() -> String {
+    "readme".into()
+}
+
+fn default_font_family() -> String {
+    "sans".into()
+}
+
+fn default_font_size() -> f64 {
+    14.0
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -150,14 +168,14 @@ fn notes_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Creates `<base>.md`, or `<base> 2.md`, `<base> 3.md`, ... without overwriting anything.
-fn create_note_file(dir: &Path, base: &str, content: &str) -> Result<PathBuf, String> {
+/// Creates `<base>.<ext>`, or `<base> 2.<ext>`, ... without overwriting anything.
+fn create_note_file(dir: &Path, base: &str, ext: &str, content: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     for n in 1..10_000u32 {
         let name = if n == 1 {
-            format!("{base}.md")
+            format!("{base}.{ext}")
         } else {
-            format!("{base} {n}.md")
+            format!("{base} {n}.{ext}")
         };
         let path = dir.join(name);
         match OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -172,10 +190,10 @@ fn create_note_file(dir: &Path, base: &str, content: &str) -> Result<PathBuf, St
     Err("Could not find a free file name".into())
 }
 
-fn blank_sticker(file: Option<String>) -> Sticker {
+fn blank_sticker(note_file: Option<String>) -> Sticker {
     Sticker {
         id: new_id(),
-        file,
+        file: None,
         color: "yellow".into(),
         opacity: 1.0,
         pinned: false,
@@ -184,6 +202,10 @@ fn blank_sticker(file: Option<String>) -> Sticker {
         height: DEFAULT_HEIGHT,
         x: None,
         y: None,
+        mode: "normal".into(),
+        note_file,
+        font_family: default_font_family(),
+        font_size: default_font_size(),
     }
 }
 
@@ -289,14 +311,14 @@ fn check_ext(path: &str) -> Result<(), String> {
         .map(|e| {
             matches!(
                 e.to_ascii_lowercase().as_str(),
-                "md" | "markdown" | "mdx" | "txt"
+                "md" | "markdown" | "mdx" | "txt" | "html"
             )
         })
         .unwrap_or(false);
     if ok {
         Ok(())
     } else {
-        Err("Only .md, .markdown, .mdx and .txt files are supported".into())
+        Err("Only .md, .markdown, .mdx, .txt and .html files are supported".into())
     }
 }
 
@@ -351,6 +373,9 @@ struct PrefsPatch {
     opacity: Option<f64>,
     pinned: Option<bool>,
     shaded: Option<bool>,
+    mode: Option<String>,
+    font_family: Option<String>,
+    font_size: Option<f64>,
 }
 
 #[tauri::command]
@@ -367,6 +392,16 @@ fn set_prefs(id: String, prefs: PrefsPatch, store: State<'_, Shared>) -> Result<
             return Err(format!("Unknown color {c}"));
         }
     }
+    if let Some(m) = &prefs.mode {
+        if !MODES.contains(&m.as_str()) {
+            return Err(format!("Unknown mode {m}"));
+        }
+    }
+    if let Some(f) = &prefs.font_family {
+        if !FONTS.contains(&f.as_str()) {
+            return Err(format!("Unknown font {f}"));
+        }
+    }
     let mut guard = lock(&store);
     let sticker = guard
         .data
@@ -374,6 +409,15 @@ fn set_prefs(id: String, prefs: PrefsPatch, store: State<'_, Shared>) -> Result<
         .iter_mut()
         .find(|s| s.id == id)
         .ok_or_else(|| format!("Unknown sticker {id}"))?;
+    if let Some(m) = prefs.mode {
+        sticker.mode = m;
+    }
+    if let Some(f) = prefs.font_family {
+        sticker.font_family = f;
+    }
+    if let Some(sz) = prefs.font_size {
+        sticker.font_size = sz.clamp(8.0, 72.0);
+    }
     if let Some(c) = prefs.color {
         sticker.color = c;
     }
@@ -390,24 +434,33 @@ fn set_prefs(id: String, prefs: PrefsPatch, store: State<'_, Shared>) -> Result<
     Ok(())
 }
 
-/// Links a sticker to a file. A file can only be open in one sticker at a time:
-/// if another sticker already has it, that sticker is brought to the front instead.
+/// Links a sticker to a file: `kind` is "readme" (the Markdown file) or "note" (the
+/// normal-mode file). A file can only be open in one sticker at a time: if another
+/// sticker already has it, that sticker is brought to the front instead.
 #[tauri::command]
 fn set_file(
     app: AppHandle,
     id: String,
     file: Option<String>,
+    kind: String,
     store: State<'_, Shared>,
 ) -> Result<(), String> {
+    if kind != "readme" && kind != "note" {
+        return Err(format!("Unknown file kind {kind}"));
+    }
     let mut guard = lock(&store);
     if let Some(f) = &file {
         let wanted = fs::canonicalize(f).unwrap_or_else(|_| PathBuf::from(f));
-        let other = guard.data.stickers.iter().find(|s| {
-            s.id != id
-                && s.file.as_ref().is_some_and(|sf| {
-                    fs::canonicalize(sf).unwrap_or_else(|_| PathBuf::from(sf)) == wanted
-                })
-        });
+        let same = |candidate: &Option<String>| {
+            candidate
+                .as_ref()
+                .is_some_and(|c| fs::canonicalize(c).unwrap_or_else(|_| PathBuf::from(c)) == wanted)
+        };
+        let other = guard
+            .data
+            .stickers
+            .iter()
+            .find(|s| s.id != id && (same(&s.file) || same(&s.note_file)));
         if let Some(other) = other {
             let label = format!("sticker-{}", other.id);
             drop(guard);
@@ -424,29 +477,62 @@ fn set_file(
         .iter_mut()
         .find(|s| s.id == id)
         .ok_or_else(|| format!("Unknown sticker {id}"))?;
-    sticker.file = file;
+    if kind == "note" {
+        sticker.note_file = file;
+    } else {
+        sticker.file = file;
+    }
     guard.dirty = true;
     Ok(())
 }
 
-/// Creates a new sticker backed by a fresh note file in `Documents/Farrey`.
-/// It copies the color and opacity of `from_id` and opens slightly offset from it.
+/// Normal-mode notes get their file lazily, on the first edit, so an untouched
+/// sticker never leaves an empty file behind.
+#[tauri::command]
+fn ensure_note_file(
+    app: AppHandle,
+    id: String,
+    store: State<'_, Shared>,
+) -> Result<String, String> {
+    let mut guard = lock(&store);
+    let sticker = guard
+        .data
+        .stickers
+        .iter_mut()
+        .find(|s| s.id == id)
+        .ok_or_else(|| format!("Unknown sticker {id}"))?;
+    if let Some(existing) = &sticker.note_file {
+        return Ok(existing.clone());
+    }
+    let path = create_note_file(&notes_dir(&app)?, "Note", "html", "")?
+        .to_string_lossy()
+        .into_owned();
+    sticker.note_file = Some(path.clone());
+    guard.dirty = true;
+    Ok(path)
+}
+
+/// Creates a new, empty normal-mode sticker. It copies the color, opacity and font of
+/// `from_id` and opens slightly offset from it. Its file is created on the first edit.
 fn create_sticker(app: &AppHandle, from_id: Option<&str>) -> Result<(), String> {
     let shared = app.state::<Shared>();
-    let (color, opacity, x, y) = {
+    let source = {
         let guard = lock(&shared);
         let found = from_id
             .and_then(|fid| guard.data.stickers.iter().find(|s| s.id == fid))
-            .map(|s| (s.color.clone(), s.opacity, s.x, s.y));
-        found.unwrap_or_else(|| ("yellow".to_string(), 1.0, None, None))
+            .cloned();
+        found
     };
 
-    let path = create_note_file(&notes_dir(app)?, "Note", "")?;
-    let mut sticker = blank_sticker(Some(path.to_string_lossy().into_owned()));
-    sticker.color = color;
-    sticker.opacity = opacity;
-    sticker.x = x.map(|v| v + CASCADE_OFFSET);
-    sticker.y = y.map(|v| v + CASCADE_OFFSET);
+    let mut sticker = blank_sticker(None);
+    if let Some(src) = &source {
+        sticker.color = src.color.clone();
+        sticker.opacity = src.opacity;
+        sticker.font_family = src.font_family.clone();
+        sticker.font_size = src.font_size;
+        sticker.x = src.x.map(|v| v + CASCADE_OFFSET);
+        sticker.y = src.y.map(|v| v + CASCADE_OFFSET);
+    }
 
     {
         let mut guard = lock(&shared);
@@ -476,6 +562,259 @@ async fn close_sticker(app: AppHandle, id: String, store: State<'_, Shared>) -> 
         w.close().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings and global hotkeys                                         */
+/* ------------------------------------------------------------------ */
+
+/// `settings.json` in the app-data folder. It is created with these defaults on first
+/// launch so it is easy to find and edit. An empty string turns a hotkey off.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase", default)]
+struct Settings {
+    /// Show or hide every sticker.
+    hotkey_toggle: String,
+    /// Create a new sticker from anywhere.
+    hotkey_new: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            hotkey_toggle: "CommandOrControl+Alt+Shift+F".into(),
+            hotkey_new: "CommandOrControl+Alt+Shift+N".into(),
+        }
+    }
+}
+
+fn load_settings(dir: &Path) -> Settings {
+    let path = dir.join("settings.json");
+    match fs::read_to_string(&path) {
+        // A broken file falls back to the defaults but is left alone so it can be fixed.
+        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+        Err(_) => {
+            let defaults = Settings::default();
+            let _ = fs::create_dir_all(dir);
+            if let Ok(json) = serde_json::to_string_pretty(&defaults) {
+                let _ = fs::write(&path, json);
+            }
+            defaults
+        }
+    }
+}
+
+/// The hotkeys that were registered successfully.
+#[derive(Default)]
+struct Hotkeys {
+    toggle: Option<Shortcut>,
+    new_sticker: Option<Shortcut>,
+}
+
+fn register_hotkey(app: &AppHandle, text: &str) -> Option<Shortcut> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let shortcut: Shortcut = match text.parse() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Invalid hotkey {text:?} in settings.json: {e:?}");
+            return None;
+        }
+    };
+    match app.global_shortcut().register(shortcut) {
+        Ok(()) => Some(shortcut),
+        Err(e) => {
+            // Usually: another app already owns it, or Linux Wayland (no global hotkeys).
+            eprintln!("Could not register hotkey {text:?}: {e:?}");
+            None
+        }
+    }
+}
+
+fn setup_hotkeys(app: &AppHandle, settings: &Settings) {
+    let hotkeys = Hotkeys {
+        toggle: register_hotkey(app, &settings.hotkey_toggle),
+        new_sticker: register_hotkey(app, &settings.hotkey_new),
+    };
+    app.manage(hotkeys);
+}
+
+fn on_hotkey(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
+    if event.state != ShortcutState::Pressed {
+        return;
+    }
+    let Some(hotkeys) = app.try_state::<Hotkeys>() else {
+        return;
+    };
+    if Some(*shortcut) == hotkeys.toggle {
+        toggle_all(app);
+    } else if Some(*shortcut) == hotkeys.new_sticker {
+        spawn_new_sticker(app);
+    }
+}
+
+/// Hide every sticker if any is visible, otherwise show them (or make one if none exist).
+fn toggle_all(app: &AppHandle) {
+    let any_visible = sticker_windows(app)
+        .iter()
+        .any(|w| w.is_visible().unwrap_or(false));
+    if any_visible {
+        hide_all(app);
+    } else {
+        spawn_show_or_create(app);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Opening files: "Open with Farrey" and the command line              */
+/* ------------------------------------------------------------------ */
+
+fn is_readme_ext(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            matches!(
+                e.to_ascii_lowercase().as_str(),
+                "md" | "markdown" | "mdx" | "txt"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// Finds `README.md` (any capitalisation) in a folder; other README formats as a fallback.
+fn find_readme_in_dir(dir: &Path) -> Option<PathBuf> {
+    let mut fallback: Option<PathBuf> = None;
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let p = entry.path();
+        if !p.is_file() || !is_readme_ext(&p) {
+            continue;
+        }
+        let Some(stem) = p
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_ascii_lowercase())
+        else {
+            continue;
+        };
+        if stem != "readme" {
+            continue;
+        }
+        let is_md = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+        if is_md {
+            return Some(p);
+        }
+        if fallback.is_none() {
+            fallback = Some(p);
+        }
+    }
+    fallback
+}
+
+/// A command-line argument can be a Markdown file or a folder (we then use its README).
+fn resolve_readme_arg(arg: &str, cwd: &Path) -> Option<PathBuf> {
+    if arg.is_empty() || arg.starts_with('-') {
+        return None;
+    }
+    let given = Path::new(arg);
+    let full = if given.is_absolute() {
+        given.to_path_buf()
+    } else {
+        cwd.join(given)
+    };
+    if full.is_dir() {
+        find_readme_in_dir(&full)
+    } else if full.is_file() && is_readme_ext(&full) {
+        Some(full)
+    } else {
+        None
+    }
+}
+
+/// `args[0]` is the program itself, so it is skipped.
+fn paths_from_args(args: &[String], cwd: &Path) -> Vec<PathBuf> {
+    args.iter()
+        .skip(1)
+        .filter_map(|a| resolve_readme_arg(a, cwd))
+        .collect()
+}
+
+fn same_file(candidate: &Option<String>, wanted: &Path) -> bool {
+    candidate.as_ref().is_some_and(|c| {
+        fs::canonicalize(c)
+            .unwrap_or_else(|_| PathBuf::from(c))
+            .as_path()
+            == wanted
+    })
+}
+
+/// Opens a Markdown file in a new README-mode sticker, or brings forward the sticker
+/// that already has it.
+fn open_readme_in_sticker(app: &AppHandle, path: &Path) -> Result<(), String> {
+    let wanted = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let shared = app.state::<Shared>();
+
+    let existing = {
+        let guard = lock(&shared);
+        let found = guard
+            .data
+            .stickers
+            .iter()
+            .find(|s| same_file(&s.file, &wanted) || same_file(&s.note_file, &wanted))
+            .map(|s| s.id.clone());
+        found
+    };
+    if let Some(id) = existing {
+        if let Some(w) = app.get_webview_window(&format!("sticker-{id}")) {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+            return Ok(());
+        }
+    }
+
+    let mut sticker = blank_sticker(None);
+    sticker.mode = "readme".into();
+    sticker.file = Some(path.to_string_lossy().into_owned());
+    {
+        let mut guard = lock(&shared);
+        guard.data.stickers.push(sticker.clone());
+        guard.dirty = true;
+    }
+    let win = build_window(app, &sticker)?;
+    let _ = win.set_focus();
+    Ok(())
+}
+
+fn open_paths(app: &AppHandle, paths: &[PathBuf]) {
+    for p in paths {
+        if let Err(e) = open_readme_in_sticker(app, p) {
+            eprintln!("Could not open {}: {e}", p.display());
+        }
+    }
+}
+
+/// A second launch of the app (for example `farrey README.md`): open the files it names,
+/// or just bring the stickers forward.
+fn spawn_handle_args(app: &AppHandle, args: Vec<String>, cwd: String) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let paths = paths_from_args(&args, Path::new(&cwd));
+        if paths.is_empty() {
+            show_or_create(&handle);
+        } else {
+            open_paths(&handle, &paths);
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move { open_paths(&handle, &paths) });
 }
 
 /* ------------------------------------------------------------------ */
@@ -533,24 +872,57 @@ fn spawn_new_sticker(app: &AppHandle) {
     });
 }
 
+fn toggle_autostart(app: &AppHandle, item: &CheckMenuItem<tauri::Wry>) {
+    let launcher = app.autolaunch();
+    let result = if launcher.is_enabled().unwrap_or(false) {
+        launcher.disable()
+    } else {
+        launcher.enable()
+    };
+    if let Err(e) = result {
+        eprintln!("Could not change Start at Login: {e}");
+    }
+    let _ = item.set_checked(launcher.is_enabled().unwrap_or(false));
+}
+
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let new_item = MenuItem::with_id(app, "tray-new", "New Sticker", true, None::<&str>)?;
     let show_item = MenuItem::with_id(app, "tray-show", "Show All Stickers", true, None::<&str>)?;
     let hide_item = MenuItem::with_id(app, "tray-hide", "Hide All Stickers", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "tray-quit", "Quit Farrey", true, None::<&str>)?;
+    // Only the installed app should register itself as a login item, not a dev build.
+    let autostart_item = CheckMenuItem::with_id(
+        app,
+        "tray-autostart",
+        "Start at Login",
+        !cfg!(debug_assertions),
+        app.autolaunch().is_enabled().unwrap_or(false),
+        None::<&str>,
+    )?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let separator2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
-        &[&new_item, &show_item, &hide_item, &separator, &quit_item],
+        &[
+            &new_item,
+            &show_item,
+            &hide_item,
+            &separator,
+            &autostart_item,
+            &separator2,
+            &quit_item,
+        ],
     )?;
+    let autostart_for_events = autostart_item.clone();
 
     let mut builder = TrayIconBuilder::with_id("farrey")
         .tooltip("Farrey")
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .on_menu_event(|app, event| {
+        .on_menu_event(move |app, event| {
             let id: &str = event.id().as_ref();
             match id {
+                "tray-autostart" => toggle_autostart(app, &autostart_for_events),
                 "tray-new" => spawn_new_sticker(app),
                 "tray-show" => show_all(app),
                 "tray-hide" => hide_all(app),
@@ -630,11 +1002,20 @@ fn close_focused(app: &AppHandle) {
 pub fn run() {
     let app = tauri::Builder::default()
         // Must be registered first. A second launch just brings the stickers forward.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            spawn_show_or_create(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            spawn_handle_args(app, args, cwd);
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(on_hotkey)
+                .build(),
+        )
         .on_menu_event(|app, event| {
             let id: &str = event.id().as_ref();
             if id == "close-sticker" {
@@ -643,7 +1024,8 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
-            let state_path = handle.path().app_data_dir()?.join("state.json");
+            let data_dir = handle.path().app_data_dir()?;
+            let state_path = data_dir.join("state.json");
             let first_run = !state_path.exists();
             let mut store = Store::load(state_path);
 
@@ -652,7 +1034,7 @@ pub fn run() {
                 // no stickers left start with a blank one (Open / New buttons).
                 let file = if first_run {
                     notes_dir(&handle)
-                        .and_then(|dir| create_note_file(&dir, "Welcome", WELCOME))
+                        .and_then(|dir| create_note_file(&dir, "Welcome", "html", WELCOME_NOTE))
                         .ok()
                         .map(|p| p.to_string_lossy().into_owned())
                 } else {
@@ -668,7 +1050,15 @@ pub fn run() {
                 build_window(&handle, s)?;
             }
 
+            setup_hotkeys(&handle, &load_settings(&data_dir));
             setup_tray(&handle)?;
+
+            // `farrey README.md` / `farrey .` on a fresh start (Windows and Linux file
+            // associations arrive the same way; macOS uses the Opened event below).
+            let args: Vec<String> = std::env::args().collect();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            open_paths(&handle, &paths_from_args(&args, &cwd));
+
             #[cfg(target_os = "macos")]
             setup_macos_menu(&handle)?;
 
@@ -689,6 +1079,7 @@ pub fn run() {
             get_sticker,
             set_prefs,
             set_file,
+            ensure_note_file,
             new_sticker,
             close_sticker
         ])
@@ -707,6 +1098,18 @@ pub fn run() {
         tauri::RunEvent::Exit => {
             let shared = handle.state::<Shared>();
             lock(&shared).flush();
+        }
+        // macOS: "Open with Farrey" / double-clicking a Markdown file.
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Opened { urls, .. } => {
+            let paths: Vec<PathBuf> = urls
+                .iter()
+                .filter_map(|u| u.to_file_path().ok())
+                .filter(|p| is_readme_ext(p))
+                .collect();
+            if !paths.is_empty() {
+                spawn_open_paths(handle, paths);
+            }
         }
         // macOS: clicking the Dock icon when no sticker is visible.
         #[cfg(target_os = "macos")]

@@ -38,6 +38,38 @@ export function addTitlebarButton(side: "left" | "right", el: HTMLElement) {
   }
 }
 
+export type Mode = "normal" | "readme";
+
+/** Run `onToggle` when the MD button (or Cmd/Ctrl+Shift+M) is used. */
+export function bindModeButton(onToggle: () => void) {
+  $("btn-mode").addEventListener("click", onToggle);
+  document.addEventListener("keydown", (e) => {
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      e.shiftKey &&
+      !e.altKey &&
+      e.key.toLowerCase() === "m"
+    ) {
+      e.preventDefault();
+      onToggle();
+    }
+  });
+}
+
+/** Show which mode this sticker is in. The MD button is pressed in README mode. */
+export function setModeButton(mode: Mode) {
+  const on = mode === "readme";
+  const btn = $("btn-mode");
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-pressed", String(on));
+  const label = on
+    ? "README mode: ON (click to go back to a normal note)"
+    : "README mode: off (click to use this sticker as a Markdown file)";
+  btn.title = label;
+  btn.setAttribute("aria-label", label);
+  $("app").dataset.mode = mode;
+}
+
 const beforeCloseHooks: Array<() => Promise<void>> = [];
 
 /** Register work (e.g. saving) that must finish before this sticker closes. */
