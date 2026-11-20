@@ -16,6 +16,7 @@ on:
 
 jobs:
   check:
+    timeout-minutes: 25
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -34,9 +35,10 @@ jobs:
           workspaces: "./src-tauri -> target"
 
       - name: Install Linux dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+          sudo apt-get update -o Acquire::Retries=3
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o Acquire::Retries=3 libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - run: npm ci
