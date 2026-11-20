@@ -34,9 +34,7 @@
     "longDescription": "Farrey is a Stickies-style desktop note where every sticker is a live Markdown file. Open a README, tick checkboxes, edit in place, and keep your notes on top of your desktop.",
     "linux": {
       "deb": {
-        "depends": [
-          "libayatana-appindicator3-1"
-        ]
+        "depends": ["libayatana-appindicator3-1"]
       }
     },
     "macOS": {
@@ -45,10 +43,7 @@
     },
     "fileAssociations": [
       {
-        "ext": [
-          "md",
-          "markdown"
-        ],
+        "ext": ["md", "markdown"],
         "name": "Markdown document",
         "description": "Markdown document",
         "role": "Editor",
