@@ -3,7 +3,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Mutex, MutexGuard,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -17,9 +17,11 @@ use tauri::{
     WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
+use tauri_plugin_dialog::{DialogExt as _, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_global_shortcut::{
     GlobalShortcutExt as _, Shortcut, ShortcutEvent, ShortcutState,
 };
+use tauri_plugin_updater::UpdaterExt as _;
 
 const DEFAULT_WIDTH: f64 = 360.0;
 const DEFAULT_HEIGHT: f64 = 420.0;
@@ -577,6 +579,8 @@ struct Settings {
     hotkey_toggle: String,
     /// Create a new sticker from anywhere.
     hotkey_new: String,
+    /// Look for a new version shortly after Farrey starts (installed builds only).
+    auto_check_updates: bool,
 }
 
 impl Default for Settings {
@@ -584,6 +588,7 @@ impl Default for Settings {
         Settings {
             hotkey_toggle: "CommandOrControl+Alt+Shift+F".into(),
             hotkey_new: "CommandOrControl+Alt+Shift+N".into(),
+            auto_check_updates: true,
         }
     }
 }
@@ -818,6 +823,176 @@ fn spawn_open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Updates                                                             */
+/* ------------------------------------------------------------------ */
+
+static CHECKING_FOR_UPDATES: AtomicBool = AtomicBool::new(false);
+
+/// Updates only work when the build carries a public key (`plugins > updater > pubkey`
+/// in tauri.conf.json). Without one, the update menu says so instead of failing.
+fn updater_configured(app: &AppHandle) -> bool {
+    app.config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|v| v.get("pubkey"))
+        .and_then(|v| v.as_str())
+        .is_some_and(|key| !key.trim().is_empty())
+}
+
+async fn notify(app: &AppHandle, title: &str, message: String, kind: MessageDialogKind) {
+    let handle = app.clone();
+    let title = title.to_string();
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .dialog()
+            .message(message)
+            .title(title)
+            .kind(kind)
+            .blocking_show()
+    })
+    .await;
+}
+
+async fn confirm(app: &AppHandle, title: &str, message: String, ok: &str, cancel: &str) -> bool {
+    let handle = app.clone();
+    let title = title.to_string();
+    let buttons = MessageDialogButtons::OkCancelCustom(ok.to_string(), cancel.to_string());
+    tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .dialog()
+            .message(message)
+            .title(title)
+            .kind(MessageDialogKind::Info)
+            .buttons(buttons)
+            .blocking_show()
+    })
+    .await
+    .unwrap_or(false)
+}
+
+/// `manual` is true when the user asked (tray menu): then every outcome is reported.
+/// The automatic check at startup stays silent unless an update is available.
+async fn check_for_updates(app: AppHandle, manual: bool) {
+    if CHECKING_FOR_UPDATES.swap(true, Ordering::SeqCst) {
+        return; // a check is already running
+    }
+    run_update_check(&app, manual).await;
+    CHECKING_FOR_UPDATES.store(false, Ordering::SeqCst);
+}
+
+async fn run_update_check(app: &AppHandle, manual: bool) {
+    if !updater_configured(app) {
+        if manual {
+            notify(
+                app,
+                "Check for Updates",
+                "Updates are not set up in this build of Farrey.".into(),
+                MessageDialogKind::Info,
+            )
+            .await;
+        }
+        return;
+    }
+
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            if manual {
+                notify(
+                    app,
+                    "Check for Updates",
+                    format!("Could not start the update check: {e}"),
+                    MessageDialogKind::Error,
+                )
+                .await;
+            }
+            return;
+        }
+    };
+
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => {
+            if manual {
+                let version = app.package_info().version.to_string();
+                notify(
+                    app,
+                    "Check for Updates",
+                    format!("You are up to date. Farrey {version} is the latest version."),
+                    MessageDialogKind::Info,
+                )
+                .await;
+            }
+            return;
+        }
+        Err(e) => {
+            if manual {
+                notify(
+                    app,
+                    "Check for Updates",
+                    format!("Could not check for updates: {e}"),
+                    MessageDialogKind::Error,
+                )
+                .await;
+            }
+            return;
+        }
+    };
+
+    let notes = update
+        .body
+        .as_deref()
+        .map(|b| b.chars().take(600).collect::<String>())
+        .filter(|b| !b.trim().is_empty())
+        .map(|b| format!("\n\n{b}"))
+        .unwrap_or_default();
+    let message = format!(
+        "Farrey {} is available (you have {}).{notes}\n\nInstall it now? Farrey will restart.",
+        update.version, update.current_version
+    );
+    if !confirm(
+        app,
+        "Update available",
+        message,
+        "Install and restart",
+        "Later",
+    )
+    .await
+    {
+        return;
+    }
+
+    match update.download_and_install(|_, _| {}, || {}).await {
+        // On Windows the installer ends this process by itself; elsewhere we restart.
+        Ok(()) => app.restart(),
+        Err(e) => {
+            notify(
+                app,
+                "Update failed",
+                format!("The update could not be installed: {e}"),
+                MessageDialogKind::Error,
+            )
+            .await;
+        }
+    }
+}
+
+fn spawn_update_check(app: &AppHandle, manual: bool) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move { check_for_updates(handle, manual).await });
+}
+
+/// One quiet check a little after launch, so startup is never slowed down.
+fn spawn_startup_update_check(app: &AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(20));
+        spawn_update_check(&handle, false);
+    });
+}
+
+/* ------------------------------------------------------------------ */
 /* Tray, menus and window visibility                                   */
 /* ------------------------------------------------------------------ */
 
@@ -899,6 +1074,8 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         app.autolaunch().is_enabled().unwrap_or(false),
         None::<&str>,
     )?;
+    let update_item =
+        MenuItem::with_id(app, "tray-update", "Check for Updates…", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let separator2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
@@ -909,6 +1086,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             &hide_item,
             &separator,
             &autostart_item,
+            &update_item,
             &separator2,
             &quit_item,
         ],
@@ -923,6 +1101,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             let id: &str = event.id().as_ref();
             match id {
                 "tray-autostart" => toggle_autostart(app, &autostart_for_events),
+                "tray-update" => spawn_update_check(app, true),
                 "tray-new" => spawn_new_sticker(app),
                 "tray-show" => show_all(app),
                 "tray-hide" => hide_all(app),
@@ -1000,7 +1179,12 @@ fn close_focused(app: &AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let context = tauri::generate_context!();
+    // The updater plugin refuses to start without its config block, so only load it
+    // when the block exists. `updater_configured` additionally requires a public key.
+    let updater_in_config = context.config().plugins.0.contains_key("updater");
+
+    let mut builder = tauri::Builder::default()
         // Must be registered first. A second launch just brings the stickers forward.
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             spawn_handle_args(app, args, cwd);
@@ -1050,7 +1234,11 @@ pub fn run() {
                 build_window(&handle, s)?;
             }
 
-            setup_hotkeys(&handle, &load_settings(&data_dir));
+            let settings = load_settings(&data_dir);
+            setup_hotkeys(&handle, &settings);
+            if settings.auto_check_updates && !cfg!(debug_assertions) {
+                spawn_startup_update_check(&handle);
+            }
             setup_tray(&handle)?;
 
             // `farrey README.md` / `farrey .` on a fresh start (Windows and Linux file
@@ -1082,9 +1270,12 @@ pub fn run() {
             ensure_note_file,
             new_sticker,
             close_sticker
-        ])
-        .build(tauri::generate_context!())
-        .expect("error while building Farrey");
+        ]);
+
+    if updater_in_config {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    let app = builder.build(context).expect("error while building Farrey");
 
     app.run(|handle, event| match event {
         // Closing the last sticker keeps Farrey alive in the tray. A real quit

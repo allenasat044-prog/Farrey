@@ -60,6 +60,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Update signing. Tauri reads these only when updates are enabled
+          # (npm run updater:enable), so they are harmless before that.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # No Apple signing variables here on purpose: Tauri treats even an empty
           # APPLE_CERTIFICATE as "sign with this certificate" and fails. To sign
           # builds later, see docs/RELEASING.md.
@@ -75,6 +79,9 @@ jobs:
       - name: Build only
         if: github.event_name == 'workflow_dispatch'
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- ${{ matrix.args }}
 
       - name: Upload installers

@@ -4,3 +4,7 @@ src-tauri/target
 src-tauri/gen
 .DS_Store
 *.log
+
+# Update-signing private keys must never be committed
+*.key
+.tauri/
