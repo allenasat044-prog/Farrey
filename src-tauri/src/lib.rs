@@ -25,7 +25,7 @@ use tauri_plugin_updater::UpdaterExt as _;
 
 const DEFAULT_WIDTH: f64 = 360.0;
 const DEFAULT_HEIGHT: f64 = 420.0;
-const MIN_WIDTH: f64 = 200.0;
+const MIN_WIDTH: f64 = 240.0;
 const MIN_HEIGHT: f64 = 120.0;
 const BAR_HEIGHT: f64 = 32.0;
 const CASCADE_OFFSET: f64 = 30.0;
@@ -362,6 +362,120 @@ fn write_note(path: String, content: String) -> Result<u64, String> {
 fn note_mtime(path: String) -> Result<u64, String> {
     check_ext(&path)?;
     mtime_of(&path)
+}
+
+/* ------------------------------------------------------------------ */
+/* Images and links inside README stickers                             */
+/* ------------------------------------------------------------------ */
+
+const IMAGE_EXTS: [&str; 9] = [
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "ico",
+];
+const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+
+/// The folder a README may reach into: the nearest parent that holds a `.git` folder
+/// (so `../docs/shot.png` works in a repository), otherwise the README's own folder.
+fn project_root(dir: &Path) -> PathBuf {
+    let mut current = dir;
+    for _ in 0..12 {
+        if current.join(".git").exists() {
+            return current.to_path_buf();
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    dir.to_path_buf()
+}
+
+fn has_url_scheme(s: &str) -> bool {
+    match s.find(':') {
+        // two or more letters before ':' means a scheme (http:, data:, file:); "C:" is a drive
+        Some(i) if i >= 2 => s[..i]
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.'),
+        _ => false,
+    }
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let high = (bytes[i + 1] as char).to_digit(16);
+            let low = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (high, low) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Turns an image or link target written in a README into a real file path, refusing
+/// anything that is not a local file inside the README's project folder.
+fn resolve_in_project(readme: &str, target: &str) -> Result<PathBuf, String> {
+    let readme_dir = Path::new(readme)
+        .parent()
+        .ok_or_else(|| "The README has no folder".to_string())?;
+    let dir = fs::canonicalize(readme_dir).map_err(|e| e.to_string())?;
+    let root = project_root(&dir);
+
+    // Drop "#section" and "?query"; they are not part of the file name.
+    let clean = target.split(['#', '?']).next().unwrap_or("");
+    if clean.is_empty() {
+        return Err("Empty path".into());
+    }
+    if clean.starts_with("//") || has_url_scheme(clean) {
+        return Err("Not a local file".into());
+    }
+    let decoded = percent_decode(clean);
+    let joined = match decoded.strip_prefix('/') {
+        Some(from_root) => root.join(from_root),
+        None => dir.join(&decoded),
+    };
+    let canonical = fs::canonicalize(&joined).map_err(|_| format!("File not found: {decoded}"))?;
+    if !canonical.starts_with(&root) {
+        return Err("That file is outside the README's project folder".into());
+    }
+    Ok(canonical)
+}
+
+/// Returns the bytes of an image that a README refers to with a relative path.
+#[tauri::command]
+fn read_image(readme: String, src: String) -> Result<tauri::ipc::Response, String> {
+    let path = resolve_in_project(&readme, &src)?;
+    let is_image = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()));
+    if !is_image {
+        return Err("Not an image file".into());
+    }
+    let size = fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    if size > MAX_IMAGE_BYTES {
+        return Err("Image is larger than 20 MB".into());
+    }
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Opens a Markdown file that a README links to (`[guide](docs/guide.md)`) in its own
+/// sticker, or brings forward the sticker that already has it.
+#[tauri::command]
+async fn open_markdown_link(app: AppHandle, readme: String, href: String) -> Result<(), String> {
+    let path = resolve_in_project(&readme, &href)?;
+    if !path.is_file() || !is_readme_ext(&path) {
+        return Err("Only Markdown files can be opened from links".into());
+    }
+    open_readme_in_sticker(&app, &path)
 }
 
 /* ------------------------------------------------------------------ */
@@ -1268,6 +1382,8 @@ pub fn run() {
             set_prefs,
             set_file,
             ensure_note_file,
+            read_image,
+            open_markdown_link,
             new_sticker,
             close_sticker
         ]);

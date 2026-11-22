@@ -34,9 +34,81 @@ hljs.registerLanguage("yml", yaml);
 
 marked.setOptions({ gfm: true, breaks: false });
 
+export interface RenderOptions {
+  /** Loads a relative image (`./shot.png`) and returns a URL the page can show. */
+  resolveImage?: (src: string) => Promise<string>;
+}
+
+/** True for a path inside the project (`./a.png`, `docs/a.md`, `/a.png`); false for
+ *  web links, `data:` images, `#anchors` and anything else with a scheme. */
+export function isLocalTarget(target: string): boolean {
+  const t = target.trim();
+  if (!t || t.startsWith("#") || t.startsWith("//")) return false;
+  return !/^[a-z][a-z0-9+.-]+:/i.test(t);
+}
+
+/** GitHub-style heading slug: lower case, punctuation removed, spaces become hyphens. */
+export function slugify(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .replace(/\s/g, "-");
+}
+
+// Heading ids get a prefix so they can never clash with the app's own element ids.
+const HEADING_PREFIX = "md-";
+
+function addHeadingIds(root: HTMLElement) {
+  const used = new Map<string, number>();
+  root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6").forEach((h) => {
+    const base = slugify(h.textContent ?? "") || "section";
+    const n = used.get(base) ?? 0;
+    used.set(base, n + 1);
+    h.id = HEADING_PREFIX + (n === 0 ? base : `${base}-${n}`);
+  });
+}
+
+/** Scroll to the heading a `#fragment` link points at. Returns false if there is none. */
+export function scrollToAnchor(root: HTMLElement, fragment: string): boolean {
+  let wanted = fragment;
+  try {
+    wanted = decodeURIComponent(fragment);
+  } catch {
+    /* keep the raw text */
+  }
+  const target = Array.from(root.querySelectorAll<HTMLElement>("[id]")).find(
+    (el) => el.id === HEADING_PREFIX + slugify(wanted),
+  );
+  if (!target) return false;
+  target.scrollIntoView({ block: "start" });
+  return true;
+}
+
+export interface Heading {
+  id: string;
+  text: string;
+  level: number;
+}
+
+/** The headings of a rendered README, in order, for the table of contents. */
+export function collectHeadings(root: HTMLElement): Heading[] {
+  return Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"))
+    .filter((h) => h.id)
+    .map((h) => ({
+      id: h.id,
+      text: (h.textContent ?? "").trim(),
+      level: Number(h.tagName.slice(1)),
+    }));
+}
+
 /** Render markdown into `root`. Task-list checkboxes become clickable and are
  *  numbered (data-task) in document order. */
-export function renderMarkdown(src: string, root: HTMLElement) {
+export function renderMarkdown(
+  src: string,
+  root: HTMLElement,
+  options: RenderOptions = {},
+) {
   const html = marked.parse(src, { async: false }) as string;
   root.innerHTML = DOMPurify.sanitize(html);
 
@@ -52,6 +124,29 @@ export function renderMarkdown(src: string, root: HTMLElement) {
       /* unknown language: leave as plain code */
     }
   });
+
+  addHeadingIds(root);
+
+  const resolveImage = options.resolveImage;
+  if (resolveImage) {
+    root.querySelectorAll<HTMLImageElement>("img").forEach((img) => {
+      const original = img.getAttribute("src") ?? "";
+      if (!isLocalTarget(original)) return;
+      img.dataset.local = original;
+      img.removeAttribute("src");
+      img.classList.add("img-loading");
+      resolveImage(original)
+        .then((url) => {
+          img.classList.remove("img-loading");
+          img.src = url;
+        })
+        .catch((err) => {
+          img.classList.remove("img-loading");
+          img.classList.add("img-missing");
+          img.title = String(err);
+        });
+    });
+  }
 }
 
 /* ---------- task-list write-back ---------- */

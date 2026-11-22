@@ -3,7 +3,14 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { refreshFind } from "./find";
-import { findTaskLines, renderMarkdown, toggleTaskLine } from "./markdown";
+import {
+  collectHeadings,
+  findTaskLines,
+  isLocalTarget,
+  renderMarkdown,
+  scrollToAnchor,
+  toggleTaskLine,
+} from "./markdown";
 import { stickerId, type StickerState } from "./sticker";
 import { addTitlebarButton, onBeforeClose, setTitleText } from "./titlebar";
 import "./markdown.css";
@@ -49,6 +56,7 @@ const emptyHint = el("empty-hint");
 const preview = el("preview");
 const editor = el<HTMLTextAreaElement>("editor");
 const toastEl = el("toast");
+const tocPanel = el("toc");
 
 /* ---------- state ---------- */
 let path: string | null = null;
@@ -105,6 +113,72 @@ function makeButton(icon: string, title: string, onClick: () => void): HTMLButto
 
 const openBtn = makeButton(ICON_OPEN, `Open file (${MOD}O)`, () => void pickAndOpen());
 const modeBtn = makeButton(ICON_EDIT, `Edit (${MOD}E)`, () => toggleMode());
+const ICON_TOC =
+  '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2.5 4h1.5M6.5 4h7M2.5 8h1.5M6.5 8h7M2.5 12h1.5M6.5 12h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>';
+const tocBtn = makeButton(ICON_TOC, `Table of contents (${MOD}⇧O)`, () => toggleToc());
+
+/* ---------- images inside the README ---------- */
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  bmp: "image/bmp",
+  avif: "image/avif",
+  ico: "image/x-icon",
+};
+let imageUrls: string[] = [];
+
+function releaseImages() {
+  imageUrls.forEach((u) => URL.revokeObjectURL(u));
+  imageUrls = [];
+}
+
+/** Loads a relative image next to the open README through the Rust side, which only
+ *  serves image files from the README's own project folder. */
+async function loadImage(src: string): Promise<string> {
+  if (!path) throw new Error("No file is open");
+  const bytes = await invoke<ArrayBuffer>("read_image", { readme: path, src });
+  const ext = src.split(/[?#]/)[0].split(".").pop()?.toLowerCase() ?? "";
+  const url = URL.createObjectURL(
+    new Blob([bytes], { type: IMAGE_TYPES[ext] ?? "image/png" }),
+  );
+  imageUrls.push(url);
+  return url;
+}
+
+/* ---------- table of contents ---------- */
+function toggleToc() {
+  if (!path) return;
+  if (!tocPanel.hidden) {
+    tocPanel.hidden = true;
+    return;
+  }
+  if (mode === "edit") setMode("preview");
+  const headings = collectHeadings(preview);
+  tocPanel.replaceChildren();
+  if (headings.length === 0) {
+    const none = document.createElement("p");
+    none.className = "toc-empty";
+    none.textContent = "No headings in this file.";
+    tocPanel.append(none);
+  }
+  const shallowest = Math.min(...headings.map((h) => h.level));
+  for (const h of headings) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.textContent = h.text || "(untitled)";
+    item.style.paddingLeft = `${8 + (h.level - shallowest) * 12}px`;
+    item.addEventListener("click", () => {
+      document.getElementById(h.id)?.scrollIntoView({ block: "start" });
+      tocPanel.hidden = true;
+    });
+    tocPanel.append(item);
+  }
+  tocPanel.hidden = false;
+}
 
 function showView() {
   if (!active) {
@@ -113,6 +187,8 @@ function showView() {
     editor.hidden = true;
     modeBtn.hidden = true;
     openBtn.hidden = true;
+    tocBtn.hidden = true;
+    tocPanel.hidden = true;
     return;
   }
   openBtn.hidden = false;
@@ -121,6 +197,8 @@ function showView() {
   preview.hidden = !hasFile || mode !== "preview";
   editor.hidden = !hasFile || mode !== "edit";
   modeBtn.hidden = !hasFile;
+  tocBtn.hidden = !hasFile || mode !== "preview";
+  if (tocBtn.hidden) tocPanel.hidden = true;
   modeBtn.innerHTML = mode === "edit" ? ICON_EYE : ICON_EDIT;
   const label = mode === "edit" ? `Preview (${MOD}E)` : `Edit (${MOD}E)`;
   modeBtn.title = label;
@@ -133,7 +211,8 @@ function renderPreview() {
   if (source.trim() === "") {
     preview.innerHTML = `<p class="hint">This note is empty. Press ${MOD}E to start writing.</p>`;
   } else {
-    renderMarkdown(source, preview);
+    releaseImages();
+    renderMarkdown(source, preview, { resolveImage: loadImage });
   }
   preview.scrollTop = scrollTop;
   refreshFind();
@@ -302,13 +381,23 @@ function wireEvents() {
     const href = a.getAttribute("href") ?? "";
     if (/^(https?:|mailto:)/i.test(href)) {
       void openUrl(href).catch((err) => toast(errText(err)));
+    } else if (href.startsWith("#")) {
+      if (!scrollToAnchor(preview, href.slice(1))) toast("That section was not found.");
+    } else if (path && isLocalTarget(href)) {
+      // A link to another Markdown file opens it in its own sticker.
+      invoke("open_markdown_link", { readme: path, href }).catch((err) =>
+        toast(errText(err)),
+      );
     }
   });
 
   window.addEventListener("keydown", (e) => {
     if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
     const key = e.key.toLowerCase();
-    if (key === "o") {
+    if (key === "o" && e.shiftKey) {
+      e.preventDefault();
+      if (active) toggleToc();
+    } else if (key === "o") {
       e.preventDefault();
       void (async () => {
         if (!active) await hooks.switchToReadme();
@@ -317,6 +406,16 @@ function wireEvents() {
     } else if (key === "e" && active) {
       e.preventDefault();
       toggleMode();
+    }
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !tocPanel.hidden) tocPanel.hidden = true;
+  });
+  document.addEventListener("mousedown", (e) => {
+    const target = e.target as Node;
+    if (!tocPanel.hidden && !tocPanel.contains(target) && !tocBtn.contains(target)) {
+      tocPanel.hidden = true;
     }
   });
 
@@ -347,6 +446,7 @@ export async function initNote(state: StickerState, h: NoteHooks): Promise<NoteA
   hooks = h;
   active = state.mode === "readme";
   emptyHint.textContent = `Drop a README.md here, or press ${MOD}O`;
+  addTitlebarButton("right", tocBtn);
   addTitlebarButton("right", openBtn);
   addTitlebarButton("right", modeBtn);
   onBeforeClose(saveNow);

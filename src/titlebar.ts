@@ -7,7 +7,7 @@ import { reportError, setPrefs, stickerId, type StickerState } from "./sticker";
 const win = getCurrentWindow();
 
 const BAR_HEIGHT = 32;
-const MIN_WIDTH = 200;
+const MIN_WIDTH = 240;
 const MIN_HEIGHT = 120;
 const MIN_OPACITY = 0.35;
 

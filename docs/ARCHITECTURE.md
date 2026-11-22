@@ -40,6 +40,12 @@
 - Files reach Farrey three ways, all ending in `open_readme_in_sticker`: macOS `RunEvent::Opened` (Open With / double-click), process arguments on a cold start, and the single-instance callback for later launches. A file that is already in a sticker is brought forward instead of opened twice.
 - Start at Login uses the autostart plugin and is disabled in debug builds so a dev binary never becomes a login item.
 
+## Images and links in README stickers (Stage 9)
+- Relative images (`./shot.png`, `docs/a.png`, `/docs/a.png`) are loaded by the Rust command `read_image`, which returns the raw bytes; the page turns them into a temporary blob URL. Web (`https:`) and inline (`data:`) images are left alone.
+- A README can only reach files inside its own project folder: the nearest parent containing `.git`, or the README's folder if there is none. Only image file types (png, jpg, gif, webp, svg, bmp, avif, ico) up to 20 MB are served.
+- Heading ids are generated after sanitizing and prefixed with `md-`, so they cannot clash with the app's own element ids. `#section` links scroll to them, and the table of contents is built from the same headings.
+- `[guide](docs/guide.md)` opens that Markdown file in its own sticker (or brings forward the one that has it) through `open_markdown_link`, with the same folder restriction.
+
 ## Known risks
 
 - Linux transparency and always-on-top vary by desktop and Wayland: test in Stage 4/5.

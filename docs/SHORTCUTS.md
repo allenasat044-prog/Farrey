@@ -9,6 +9,7 @@ Use Cmd on macOS, Ctrl on Windows and Linux.
 | Cmd/Ctrl+B / I / U     | Bold / italic / underline (normal mode)        |
 | Cmd/Ctrl+O             | Open a Markdown file (switches to README mode) |
 | Cmd/Ctrl+E             | Toggle edit / preview (README mode)            |
+| Cmd/Ctrl+Shift+O       | Table of contents (README mode)                |
 | Cmd/Ctrl+F             | Find in note                                   |
 | Enter / Shift+Enter    | Next / previous match (in the find box)        |
 | Cmd/Ctrl+G             | Next match (Shift for previous)                |
