@@ -46,6 +46,11 @@
 - Heading ids are generated after sanitizing and prefixed with `md-`, so they cannot clash with the app's own element ids. `#section` links scroll to them, and the table of contents is built from the same headings.
 - `[guide](docs/guide.md)` opens that Markdown file in its own sticker (or brings forward the one that has it) through `open_markdown_link`, with the same folder restriction.
 
+## Colors, click-through and the tray icon (Stage 10)
+- Colors: six light presets, two dark presets (`charcoal`, `midnight`) and a `custom` color stored as `#rrggbb` in `customColor`. Dark colors set `data-tone="dark"` on the note so text, code, link and syntax colors switch to light variants. For a custom color the text color is chosen by contrast (`src/color.ts`).
+- Click-through: Rust calls `set_ignore_cursor_events` on a sticker window. The set of click-through stickers lives only in memory (`GhostState`), so every launch starts with all stickers clickable. It is switched on from the color panel, a global hotkey, or the tray menu, and switched off for all stickers from the hotkey or the tray menu.
+- The macOS menu-bar icon is drawn in code (a black-on-transparent note outline, used as a template image so the system tints it). Windows and Linux keep the colored app icon, which stays visible on any taskbar.
+
 ## Known risks
 
 - Linux transparency and always-on-top vary by desktop and Wayland: test in Stage 4/5.

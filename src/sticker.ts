@@ -19,6 +19,8 @@ export interface StickerState {
   noteFile: string | null;
   fontFamily: string;
   fontSize: number;
+  /** "#rrggbb", used when `color` is "custom". */
+  customColor: string | null;
 }
 
 export interface PrefsPatch {
@@ -29,6 +31,7 @@ export interface PrefsPatch {
   mode?: "normal" | "readme";
   fontFamily?: string;
   fontSize?: number;
+  customColor?: string;
 }
 
 /** Each sticker window is labelled "sticker-<id>". */

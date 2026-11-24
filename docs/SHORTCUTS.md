@@ -26,5 +26,6 @@ Tray / menu bar icon: New Sticker, Show All, Hide All, Quit.
 | -------------------- | ------------------------- |
 | Cmd/Ctrl+Alt+Shift+F | Show or hide all stickers |
 | Cmd/Ctrl+Alt+Shift+N | New sticker               |
+| Cmd/Ctrl+Alt+Shift+T | Toggle click-through for all stickers |
 
 Change them in `settings.json` (see the README). Not available on Linux Wayland.

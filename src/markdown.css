@@ -457,3 +457,47 @@ mark.find-hit.current {
   font-size: 12px;
   color: rgb(45 40 20 / 0.7);
 }
+
+/* README and note content on dark colors */
+.note[data-tone="dark"] .md a {
+  color: #8ab4ff;
+}
+.note[data-tone="dark"] .md code,
+.note[data-tone="dark"] .md pre {
+  background: rgb(255 255 255 / 0.1);
+}
+.note[data-tone="dark"] .md th {
+  background: rgb(255 255 255 / 0.08);
+}
+.note[data-tone="dark"] .btn {
+  background: rgb(255 255 255 / 0.12);
+}
+.note[data-tone="dark"] .btn:hover {
+  background: rgb(255 255 255 / 0.22);
+}
+.note[data-tone="dark"] .hljs-keyword,
+.note[data-tone="dark"] .hljs-selector-tag,
+.note[data-tone="dark"] .hljs-literal,
+.note[data-tone="dark"] .hljs-built_in {
+  color: #d6a2ff;
+}
+.note[data-tone="dark"] .hljs-string,
+.note[data-tone="dark"] .hljs-attr,
+.note[data-tone="dark"] .hljs-template-variable {
+  color: #8fd6a6;
+}
+.note[data-tone="dark"] .hljs-number,
+.note[data-tone="dark"] .hljs-symbol,
+.note[data-tone="dark"] .hljs-bullet {
+  color: #ffb86b;
+}
+.note[data-tone="dark"] .hljs-title,
+.note[data-tone="dark"] .hljs-section,
+.note[data-tone="dark"] .hljs-name {
+  color: #8ab4ff;
+}
+.note[data-tone="dark"] .hljs-variable,
+.note[data-tone="dark"] .hljs-type,
+.note[data-tone="dark"] .hljs-params {
+  color: #ff8a8a;
+}

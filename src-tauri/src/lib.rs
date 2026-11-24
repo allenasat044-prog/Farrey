@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -29,7 +30,9 @@ const MIN_WIDTH: f64 = 240.0;
 const MIN_HEIGHT: f64 = 120.0;
 const BAR_HEIGHT: f64 = 32.0;
 const CASCADE_OFFSET: f64 = 30.0;
-const COLORS: [&str; 6] = ["yellow", "blue", "green", "pink", "purple", "gray"];
+const COLORS: [&str; 9] = [
+    "yellow", "blue", "green", "pink", "purple", "gray", "charcoal", "midnight", "custom",
+];
 const MODES: [&str; 2] = ["normal", "readme"];
 const FONTS: [&str; 4] = ["sans", "serif", "mono", "hand"];
 
@@ -64,6 +67,9 @@ struct Sticker {
     font_family: String,
     #[serde(default = "default_font_size")]
     font_size: f64,
+    /// "#rrggbb", used when `color` is "custom".
+    #[serde(default)]
+    custom_color: Option<String>,
 }
 
 fn default_mode_for_saved() -> String {
@@ -72,6 +78,10 @@ fn default_mode_for_saved() -> String {
 
 fn default_font_family() -> String {
     "sans".into()
+}
+
+fn is_hex_color(s: &str) -> bool {
+    s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn default_font_size() -> f64 {
@@ -208,6 +218,7 @@ fn blank_sticker(note_file: Option<String>) -> Sticker {
         note_file,
         font_family: default_font_family(),
         font_size: default_font_size(),
+        custom_color: None,
     }
 }
 
@@ -492,6 +503,7 @@ struct PrefsPatch {
     mode: Option<String>,
     font_family: Option<String>,
     font_size: Option<f64>,
+    custom_color: Option<String>,
 }
 
 #[tauri::command]
@@ -518,6 +530,11 @@ fn set_prefs(id: String, prefs: PrefsPatch, store: State<'_, Shared>) -> Result<
             return Err(format!("Unknown font {f}"));
         }
     }
+    if let Some(c) = &prefs.custom_color {
+        if !is_hex_color(c) {
+            return Err(format!("Not a #rrggbb color: {c}"));
+        }
+    }
     let mut guard = lock(&store);
     let sticker = guard
         .data
@@ -530,6 +547,9 @@ fn set_prefs(id: String, prefs: PrefsPatch, store: State<'_, Shared>) -> Result<
     }
     if let Some(f) = prefs.font_family {
         sticker.font_family = f;
+    }
+    if let Some(c) = prefs.custom_color {
+        sticker.custom_color = Some(c);
     }
     if let Some(sz) = prefs.font_size {
         sticker.font_size = sz.clamp(8.0, 72.0);
@@ -646,6 +666,7 @@ fn create_sticker(app: &AppHandle, from_id: Option<&str>) -> Result<(), String> 
         sticker.opacity = src.opacity;
         sticker.font_family = src.font_family.clone();
         sticker.font_size = src.font_size;
+        sticker.custom_color = src.custom_color.clone();
         sticker.x = src.x.map(|v| v + CASCADE_OFFSET);
         sticker.y = src.y.map(|v| v + CASCADE_OFFSET);
     }
@@ -693,6 +714,8 @@ struct Settings {
     hotkey_toggle: String,
     /// Create a new sticker from anywhere.
     hotkey_new: String,
+    /// Let clicks pass through every sticker, or give them back.
+    hotkey_click_through: String,
     /// Look for a new version shortly after Farrey starts (installed builds only).
     auto_check_updates: bool,
 }
@@ -702,6 +725,7 @@ impl Default for Settings {
         Settings {
             hotkey_toggle: "CommandOrControl+Alt+Shift+F".into(),
             hotkey_new: "CommandOrControl+Alt+Shift+N".into(),
+            hotkey_click_through: "CommandOrControl+Alt+Shift+T".into(),
             auto_check_updates: true,
         }
     }
@@ -728,6 +752,7 @@ fn load_settings(dir: &Path) -> Settings {
 struct Hotkeys {
     toggle: Option<Shortcut>,
     new_sticker: Option<Shortcut>,
+    click_through: Option<Shortcut>,
 }
 
 fn register_hotkey(app: &AppHandle, text: &str) -> Option<Shortcut> {
@@ -756,6 +781,7 @@ fn setup_hotkeys(app: &AppHandle, settings: &Settings) {
     let hotkeys = Hotkeys {
         toggle: register_hotkey(app, &settings.hotkey_toggle),
         new_sticker: register_hotkey(app, &settings.hotkey_new),
+        click_through: register_hotkey(app, &settings.hotkey_click_through),
     };
     app.manage(hotkeys);
 }
@@ -771,6 +797,8 @@ fn on_hotkey(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
         toggle_all(app);
     } else if Some(*shortcut) == hotkeys.new_sticker {
         spawn_new_sticker(app);
+    } else if Some(*shortcut) == hotkeys.click_through {
+        toggle_click_through_all(app);
     }
 }
 
@@ -784,6 +812,82 @@ fn toggle_all(app: &AppHandle) {
     } else {
         spawn_show_or_create(app);
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* Click-through ("ghost") stickers                                    */
+/* ------------------------------------------------------------------ */
+
+/// Ids of the stickers that currently let mouse clicks pass through them. This is never
+/// saved: every launch starts with all stickers clickable, so nobody gets locked out.
+#[derive(Default)]
+struct GhostState(Mutex<HashSet<String>>);
+
+fn sticker_id_of(window: &WebviewWindow) -> Option<String> {
+    window
+        .label()
+        .strip_prefix("sticker-")
+        .map(|id| id.to_string())
+}
+
+/// The stickers that are click-through right now (closed stickers are dropped).
+fn ghost_ids(app: &AppHandle) -> Vec<String> {
+    let state = app.state::<GhostState>();
+    let mut set = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    set.retain(|id| app.get_webview_window(&format!("sticker-{id}")).is_some());
+    let ids: Vec<String> = set.iter().cloned().collect();
+    ids
+}
+
+fn set_ghost(app: &AppHandle, id: &str, on: bool) -> Result<(), String> {
+    let label = format!("sticker-{id}");
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("Unknown sticker {id}"))?;
+    window
+        .set_ignore_cursor_events(on)
+        .map_err(|e| e.to_string())?;
+    {
+        let state = app.state::<GhostState>();
+        let mut set = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        if on {
+            set.insert(id.to_string());
+        } else {
+            set.remove(id);
+        }
+    }
+    // Lets the sticker show that it is a ghost.
+    let _ = app.emit_to(label.as_str(), "farrey-ghost", on);
+    Ok(())
+}
+
+fn make_all_clickable(app: &AppHandle) {
+    for id in ghost_ids(app) {
+        let _ = set_ghost(app, &id, false);
+    }
+}
+
+fn make_all_ghosts(app: &AppHandle) {
+    for window in sticker_windows(app) {
+        if let Some(id) = sticker_id_of(&window) {
+            let _ = set_ghost(app, &id, true);
+        }
+    }
+}
+
+/// Hotkey and tray menu: if any sticker is click-through, give every sticker back its
+/// clicks; otherwise make all of them click-through.
+fn toggle_click_through_all(app: &AppHandle) {
+    if ghost_ids(app).is_empty() {
+        make_all_ghosts(app);
+    } else {
+        make_all_clickable(app);
+    }
+}
+
+#[tauri::command]
+fn set_click_through(app: AppHandle, id: String, on: bool) -> Result<(), String> {
+    set_ghost(&app, &id, on)
 }
 
 /* ------------------------------------------------------------------ */
@@ -1161,6 +1265,40 @@ fn spawn_new_sticker(app: &AppHandle) {
     });
 }
 
+/// Distance from a point to a rounded rectangle (negative inside): used to draw the icon.
+#[cfg(target_os = "macos")]
+fn rounded_rect_distance(px: f32, py: f32, cx: f32, cy: f32, hw: f32, hh: f32, r: f32) -> f32 {
+    let qx = (px - cx).abs() - (hw - r);
+    let qy = (py - cy).abs() - (hh - r);
+    let (ox, oy) = (qx.max(0.0), qy.max(0.0));
+    (ox * ox + oy * oy).sqrt() + qx.max(qy).min(0.0) - r
+}
+
+/// A small note with three lines, drawn in code: black on transparent, 44x44 pixels.
+#[cfg(target_os = "macos")]
+fn tray_template_icon() -> tauri::image::Image<'static> {
+    const SIZE: u32 = 44;
+    let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            let outline = (2.0 - rounded_rect_distance(px, py, 22.0, 22.0, 14.0, 17.0, 5.0).abs())
+                .clamp(0.0, 1.0);
+            let line = |cy: f32, half_width: f32| {
+                (0.5 - rounded_rect_distance(px, py, 22.0, cy, half_width, 1.5, 1.5))
+                    .clamp(0.0, 1.0)
+            };
+            let coverage = outline
+                .max(line(17.0, 8.0))
+                .max(line(23.0, 8.0))
+                .max(line(29.0, 5.0));
+            let i = ((y * SIZE + x) * 4) as usize;
+            rgba[i + 3] = (coverage * 255.0).round() as u8;
+        }
+    }
+    tauri::image::Image::new_owned(rgba, SIZE, SIZE)
+}
+
 fn toggle_autostart(app: &AppHandle, item: &CheckMenuItem<tauri::Wry>) {
     let launcher = app.autolaunch();
     let result = if launcher.is_enabled().unwrap_or(false) {
@@ -1190,6 +1328,13 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     )?;
     let update_item =
         MenuItem::with_id(app, "tray-update", "Check for Updates…", true, None::<&str>)?;
+    let ghost_item = MenuItem::with_id(
+        app,
+        "tray-ghost",
+        "Toggle Click-Through (All)",
+        true,
+        None::<&str>,
+    )?;
     let separator = PredefinedMenuItem::separator(app)?;
     let separator2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
@@ -1198,6 +1343,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             &new_item,
             &show_item,
             &hide_item,
+            &ghost_item,
             &separator,
             &autostart_item,
             &update_item,
@@ -1219,12 +1365,22 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 "tray-new" => spawn_new_sticker(app),
                 "tray-show" => show_all(app),
                 "tray-hide" => hide_all(app),
+                "tray-ghost" => toggle_click_through_all(app),
                 "tray-quit" => app.exit(0),
                 _ => {}
             }
         });
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
+    // macOS menu bars want a black-and-transparent "template" icon that the system tints.
+    // Other systems keep the coloured app icon, which stays visible on any taskbar.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.icon(tray_template_icon()).icon_as_template(true);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(icon) = app.default_window_icon() {
+            builder = builder.icon(icon.clone());
+        }
     }
     builder.build(app)?;
     Ok(())
@@ -1343,6 +1499,7 @@ pub fn run() {
             }
             let stickers = store.data.stickers.clone();
             app.manage(Mutex::new(store));
+            app.manage(GhostState::default());
 
             for s in &stickers {
                 build_window(&handle, s)?;
@@ -1383,6 +1540,7 @@ pub fn run() {
             set_file,
             ensure_note_file,
             read_image,
+            set_click_through,
             open_markdown_link,
             new_sticker,
             close_sticker

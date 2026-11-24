@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { LogicalSize } from "@tauri-apps/api/dpi";
+import { hexToRgb, needsLightText } from "./color";
 import { reportError, setPrefs, stickerId, type StickerState } from "./sticker";
 
 const win = getCurrentWindow();
@@ -11,8 +12,19 @@ const MIN_WIDTH = 240;
 const MIN_HEIGHT = 120;
 const MIN_OPACITY = 0.35;
 
-const COLORS = ["yellow", "blue", "green", "pink", "purple", "gray"] as const;
-type NoteColor = (typeof COLORS)[number];
+const COLORS = [
+  "yellow",
+  "blue",
+  "green",
+  "pink",
+  "purple",
+  "gray",
+  "charcoal",
+  "midnight",
+] as const;
+type NoteColor = (typeof COLORS)[number] | "custom";
+// Colors with light text; the style sheet switches text, code and link colors for them.
+const DARK_COLORS = new Set<string>(["charcoal", "midnight"]);
 
 function $(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -97,9 +109,12 @@ export function initTitlebar(state: StickerState) {
   const popover = $("popover");
 
   const prefs = {
-    color: (COLORS.includes(state.color as NoteColor)
-      ? state.color
-      : "yellow") as NoteColor,
+    color: (state.color === "custom" && hexToRgb(state.customColor)
+      ? "custom"
+      : (COLORS as readonly string[]).includes(state.color)
+        ? state.color
+        : "yellow") as NoteColor,
+    customColor: hexToRgb(state.customColor) ? state.customColor : null,
     opacity: Math.min(1, Math.max(MIN_OPACITY, state.opacity)),
     pinned: state.pinned,
   };
@@ -111,6 +126,23 @@ export function initTitlebar(state: StickerState) {
   /* ---------- color, opacity, pin ---------- */
   function applyPrefs() {
     root.dataset.color = prefs.color;
+    const custom = prefs.color === "custom" ? hexToRgb(prefs.customColor) : null;
+    if (custom) {
+      const [r, g, b] = custom;
+      const dark = needsLightText(custom);
+      root.style.setProperty("--rgb", `${r} ${g} ${b}`);
+      root.style.setProperty(
+        "--bar",
+        `${Math.round(r * 0.86)} ${Math.round(g * 0.86)} ${Math.round(b * 0.86)}`,
+      );
+      root.style.setProperty("--ink", dark ? "236 236 240" : "45 40 20");
+      root.dataset.tone = dark ? "dark" : "light";
+    } else {
+      root.style.removeProperty("--rgb");
+      root.style.removeProperty("--bar");
+      root.style.removeProperty("--ink");
+      root.dataset.tone = DARK_COLORS.has(prefs.color) ? "dark" : "light";
+    }
     root.style.setProperty("--alpha", String(prefs.opacity));
     pinBtn.classList.toggle("on", prefs.pinned);
     pinBtn.setAttribute("aria-pressed", String(prefs.pinned));
@@ -148,6 +180,21 @@ export function initTitlebar(state: StickerState) {
     });
     swatches.appendChild(b);
   }
+  const customInput = document.createElement("input");
+  customInput.type = "color";
+  customInput.className = "swatch swatch-custom";
+  customInput.title = "Custom color";
+  customInput.setAttribute("aria-label", "Custom color");
+  customInput.value = prefs.customColor ?? "#ffd54f";
+  customInput.addEventListener("input", () => {
+    prefs.color = "custom";
+    prefs.customColor = customInput.value;
+    applyPrefs();
+  });
+  customInput.addEventListener("change", () => {
+    persist({ color: "custom", customColor: customInput.value });
+  });
+  swatches.appendChild(customInput);
 
   const opacityLabel = document.createElement("label");
   opacityLabel.className = "opacity";
@@ -165,7 +212,30 @@ export function initTitlebar(state: StickerState) {
   });
   slider.addEventListener("change", () => persist({ opacity: prefs.opacity }));
   opacityLabel.append(opacityText, slider);
-  popover.append(swatches, opacityLabel);
+
+  const ghostBtn = document.createElement("button");
+  ghostBtn.className = "ghost-btn";
+  ghostBtn.textContent = "Click-through";
+  ghostBtn.title =
+    "Clicks pass through this sticker to the window behind it. To get it back: tray icon, Toggle Click-Through (or Cmd/Ctrl+Alt+Shift+T).";
+  ghostBtn.addEventListener("click", () => {
+    popover.hidden = true;
+    invoke("set_click_through", { id: stickerId(), on: true })
+      .then(() =>
+        reportError(
+          "Click-through is on. To get this sticker back: tray icon, Toggle Click-Through.",
+        ),
+      )
+      .catch((err) =>
+        reportError(`Could not turn on click-through: ${errorMessage(err)}`),
+      );
+  });
+  popover.append(swatches, opacityLabel, ghostBtn);
+
+  // Sent by the tray menu and hotkey when click-through is switched on or off.
+  getCurrentWebviewWindow()
+    .listen<boolean>("farrey-ghost", (e) => root.classList.toggle("ghost", e.payload))
+    .catch((err) => console.error("could not listen for click-through changes", err));
 
   colorBtn.addEventListener("click", () => {
     popover.hidden = !popover.hidden;
